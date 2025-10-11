@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/tim/.claude/notify_hook.py"
+            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/tim/.claude/notify_hook.py"
+            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/tim/.claude/notify_hook.py"
+            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/tim/.claude/notify_hook.py"
+            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
           }
         ]
       }
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/home/tim/.claude/notify_hook.py"
+            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
           }
         ]
       }
