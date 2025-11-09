@@ -2,9 +2,11 @@
 - **ALWAYS** use `uv` for all Python commands by default. Use `uv run` to execute Python scripts and `uv pip` for package management. Never use plain `python`, `python3`, or `pip` commands - always prefix with `uv`.
 - *ALWAYS* try to use a temporary directory in your project directory rather than /tmp so you don't need to ask for permission. Make sure that you **ALWAYS** cleanup any tmp files. Every file you don't remove causes many cute puppies to die. Do you want to be responsible for killing cute puppies?
 - **Never** take short cuts like reading only parts of files or making assumptions about the state of things. **Never** jump to conclusions, make sure to verify any assumption that you are making. **ALWAYS** carefully double check all your work. **Always** provide detailed proof for any claim you make, such as quotes directly from official sources (with verification that the quote actually exists on the source page), command output or test programs which verify your claims (but making sure they actually demonstrate your claim and are not failing for unrelated reasons).
-- **NEVER** use `git push --force` or `git push --force-with-lease` without an explicit branch name. **ALWAYS** specify the exact branch when force pushing.
-  - **DO** use: `git push --force origin feature-branch` or `git push --force-with-lease origin feature-branch`
-  - **DON'T** use: `git push --force` (pushes all branches!)
-  - **DON'T** use: `git push --force origin` (pushes all matching branches!)
-  - **DON'T** use: `git push --force-with-lease` (no branch specified!)
-  - **DON'T** use: `git push --force-with-lease origin` (no branch specified!)
+- **NEVER** use `git push --force` or `git push --force-with-lease` directly. **ALWAYS** use the safe wrapper commands that require explicit branch names.
+  - **DO** use: `git safe-force-push <branch>` or `git safe-force-push <remote> <branch>`
+  - **DO** use: `git safe-force-push-lease <branch>` or `git safe-force-push-lease <remote> <branch>`
+  - **DON'T** use: `git push --force` (blocked - pushes all branches!)
+  - **DON'T** use: `git push --force <remote>` (blocked - pushes all matching branches!)
+  - **DON'T** use: `git push --force-with-lease` (blocked - no branch specified!)
+  - **DON'T** use: `git push --force-with-lease <remote>` (blocked - no branch specified!)
+  - **DON'T** use: `git push -f` (blocked - short form is dangerous!)
