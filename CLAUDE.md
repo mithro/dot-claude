@@ -10,3 +10,4 @@
   - **DON'T** use: `git push --force-with-lease` (blocked - no branch specified!)
   - **DON'T** use: `git push --force-with-lease <remote>` (blocked - no branch specified!)
   - **DON'T** use: `git push -f` (blocked - short form is dangerous!)
+- When selecting a license, choose Apache 2.0 license unless strong reasons otherwise. If you believe a different license would be more appropriate, ask the user first before selecting an alternative.
