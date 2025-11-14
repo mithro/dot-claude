@@ -11,3 +11,4 @@
   - **DON'T** use: `git push --force-with-lease <remote>` (blocked - no branch specified!)
   - **DON'T** use: `git push -f` (blocked - short form is dangerous!)
 - When selecting a license, choose Apache 2.0 license unless strong reasons otherwise. If you believe a different license would be more appropriate, ask the user first before selecting an alternative.
+- When creating or configuring new GitHub repositories, refer to `GitHub.md` in this directory for the standard repository settings and configuration commands to apply.
