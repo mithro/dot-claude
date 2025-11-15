@@ -10,11 +10,12 @@ After creating a new repository, run these commands to apply the default setting
 # Set the repository name (replace with your actual repo)
 REPO="owner/repo-name"
 
-# Disable wiki, projects, and discussions
+# Disable wiki and projects
 gh repo edit $REPO --enable-wiki=false --enable-projects=false
 
-# Note: Discussions can only be disabled via web UI or API
-gh api repos/$REPO -X PATCH -f has_discussions=false
+# Disable discussions (requires GraphQL API - REST API doesn't support this)
+REPO_ID=$(gh api graphql -f query="query { repository(owner: \"${REPO%/*}\", name: \"${REPO#*/}\") { id } }" --jq '.data.repository.id')
+gh api graphql -f query="mutation { updateRepository(input: { repositoryId: \"$REPO_ID\", hasDiscussionsEnabled: false }) { repository { hasDiscussionsEnabled } } }"
 
 # Configure merge options - only allow merge commits
 gh repo edit $REPO \
@@ -34,8 +35,9 @@ gh api repos/$REPO -X PATCH -f security_and_analysis[secret_scanning_push_protec
 # Enable always suggest updating pull request branches
 gh api repos/$REPO -X PATCH -f allow_update_branch=true
 
-# Enable Git LFS objects in archives
-gh api repos/$REPO -X PATCH -f has_downloads=true
+# Note: "Include Git LFS objects in archives" is UI-only
+# No API endpoint available - must be set manually at:
+# https://github.com/$REPO/settings (under "Archives" section)
 
 # Protect the default branch (usually 'main' or 'master')
 DEFAULT_BRANCH=$(gh repo view $REPO --json defaultBranchRef --jq .defaultBranchRef.name)
@@ -82,8 +84,9 @@ gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT -f required_status
 # Disable wiki and projects
 gh repo edit $REPO --enable-wiki=false --enable-projects=false
 
-# Disable discussions (requires API call)
-gh api repos/$REPO -X PATCH -f has_discussions=false
+# Disable discussions (requires GraphQL API - REST API doesn't support this parameter)
+REPO_ID=$(gh api graphql -f query="query { repository(owner: \"${REPO%/*}\", name: \"${REPO#*/}\") { id } }" --jq '.data.repository.id')
+gh api graphql -f query="mutation { updateRepository(input: { repositoryId: \"$REPO_ID\", hasDiscussionsEnabled: false }) { repository { hasDiscussionsEnabled } } }"
 ```
 
 ### 4. Disable Everything But Merge Pull Requests
@@ -112,10 +115,16 @@ gh repo edit $REPO --delete-branch-on-merge=true
 
 ### 7. Enable Include Git LFS Objects in Archives
 
-```bash
-# This is controlled by the has_downloads setting
-gh api repos/$REPO -X PATCH -f has_downloads=true
-```
+**Note:** This setting is **UI-only** and cannot be configured via API (neither REST nor GraphQL).
+
+To enable this setting:
+1. Navigate to `https://github.com/$REPO/settings`
+2. Scroll to the "Archives" section
+3. Check "Include Git LFS objects in archives"
+
+**References:**
+- [GitHub Docs: Managing Git LFS objects in archives](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/managing-git-lfs-objects-in-archives-of-your-repository)
+- No API parameter exists for this setting (verified via REST API docs and GraphQL introspection)
 
 ## Verification Commands
 
