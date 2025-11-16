@@ -47,6 +47,11 @@ gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT -f required_status
   -f restrictions=null \
   -f allow_force_pushes=false \
   -f allow_deletions=false
+
+# Create initial tag for git-describe
+FIRST_COMMIT=$(git log --reverse --format=%H | head -1)
+git tag v0.0 $FIRST_COMMIT
+git push origin v0.0
 ```
 
 ## Individual Setting Details
@@ -125,6 +130,36 @@ To enable this setting:
 **References:**
 - [GitHub Docs: Managing Git LFS objects in archives](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/managing-git-lfs-objects-in-archives-of-your-repository)
 - No API parameter exists for this setting (verified via REST API docs and GraphQL introspection)
+
+### 8. Create Initial Tag for git-describe
+
+Create an initial version tag on the first commit to enable `git-describe` to work properly:
+
+```bash
+# Find the first commit
+FIRST_COMMIT=$(git log --reverse --format=%H | head -1)
+
+# Create tag v0.0 on the first commit
+git tag v0.0 $FIRST_COMMIT
+
+# Push the tag to remote
+git push origin v0.0
+
+# Verify git-describe works
+git describe --tags
+```
+
+**Why this is needed:**
+- `git-describe` requires at least one tag to generate version strings
+- Creating `v0.0` on the first commit provides a base reference point
+- Enables automatic version numbering based on commits since the initial tag
+- Useful for package version management and build identification
+
+**Example output:**
+```
+v0.0-37-g3a3ceb5
+```
+This means: 37 commits after tag v0.0, current commit hash g3a3ceb5
 
 ## Verification Commands
 
