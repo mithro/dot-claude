@@ -10,6 +10,10 @@ After creating a new repository, run these commands to apply the default setting
 # Set the repository name (replace with your actual repo)
 REPO="owner/repo-name"
 
+# Tag the first commit as v0.0 (enables git describe to work)
+git tag v0.0 $(git rev-list --max-parents=0 HEAD)
+git push origin v0.0
+
 # Disable wiki and projects
 gh repo edit $REPO --enable-wiki=false --enable-projects=false
 
@@ -56,7 +60,19 @@ git push origin v0.0
 
 ## Individual Setting Details
 
-### 1. Enable Secrets Detection
+### 1. Tag the First Commit as v0.0
+
+```bash
+# Tag the first commit with v0.0 to enable git describe
+git tag v0.0 $(git rev-list --max-parents=0 HEAD)
+git push origin v0.0
+```
+
+**Purpose**: Adding a `v0.0` tag to the first commit ensures that `git describe` works properly from the start of the repository. Without any tags, `git describe` will fail with "fatal: No names found, cannot describe anything."
+
+**Note**: This should be done after the initial commit but before extensive development. The tag marks the repository's starting point and allows version-based commands to function correctly.
+
+### 2. Enable Secrets Detection
 
 ```bash
 # Enable secret scanning
@@ -68,7 +84,7 @@ gh api repos/$REPO -X PATCH -f security_and_analysis[secret_scanning_push_protec
 
 **Note**: Secret scanning is automatically available for public repositories. For private repositories, it requires GitHub Advanced Security to be enabled for your organization.
 
-### 2. Prevent Force Pushing the Default Branch
+### 3. Prevent Force Pushing the Default Branch
 
 ```bash
 # Get the default branch name
@@ -83,7 +99,7 @@ gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT -f required_status
   -f allow_deletions=false
 ```
 
-### 3. Disable Wiki, Projects, and Discussions
+### 4. Disable Wiki, Projects, and Discussions
 
 ```bash
 # Disable wiki and projects
@@ -94,7 +110,7 @@ REPO_ID=$(gh api graphql -f query="query { repository(owner: \"${REPO%/*}\", nam
 gh api graphql -f query="mutation { updateRepository(input: { repositoryId: \"$REPO_ID\", hasDiscussionsEnabled: false }) { repository { hasDiscussionsEnabled } } }"
 ```
 
-### 4. Disable Everything But Merge Pull Requests
+### 5. Disable Everything But Merge Pull Requests
 
 ```bash
 # Only allow merge commits (disable squash and rebase merge)
@@ -104,21 +120,21 @@ gh repo edit $REPO \
   --allow-merge-commit=true
 ```
 
-### 5. Enable Always Suggest Updating Pull Request Branches
+### 6. Enable Always Suggest Updating Pull Request Branches
 
 ```bash
 # Enable the "Update branch" button on pull requests
 gh api repos/$REPO -X PATCH -f allow_update_branch=true
 ```
 
-### 6. Enable Automatically Delete Head Branches
+### 7. Enable Automatically Delete Head Branches
 
 ```bash
 # Automatically delete head branches after PR merge
 gh repo edit $REPO --delete-branch-on-merge=true
 ```
 
-### 7. Enable Include Git LFS Objects in Archives
+### 8. Enable Include Git LFS Objects in Archives
 
 **Note:** This setting is **UI-only** and cannot be configured via API (neither REST nor GraphQL).
 
