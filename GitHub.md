@@ -56,6 +56,10 @@ gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT -f required_status
 FIRST_COMMIT=$(git log --reverse --format=%H | head -1)
 git tag v0.0 $FIRST_COMMIT
 git push origin v0.0
+
+# Setup tag version format enforcement (ask user for format preference)
+# Default: vXX.ZZZ, Alternative: vXX.YY.ZZZ
+uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner ${REPO%/*} --repo ${REPO#*/}
 ```
 
 ## Individual Setting Details
@@ -176,6 +180,40 @@ git describe --tags
 v0.0-37-g3a3ceb5
 ```
 This means: 37 commits after tag v0.0, current commit hash g3a3ceb5
+
+### 9. Enforce Tag Version Format
+
+Use the `setup_tag_ruleset.py` script to create a GitHub ruleset that restricts tag creation to only allow properly formatted version tags.
+
+**Claude: When setting up a new repository, ask the user which tag format they want to use:**
+- `vXX.ZZZ` (default): Two-part versioning (e.g., v1.0, v12.345)
+- `vXX.YY.ZZZ`: Three-part semantic versioning (e.g., v1.2.3, v12.34.567)
+
+```bash
+# Preview what will be created (dry-run)
+uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner $OWNER --repo $REPO --dry-run
+
+# Create ruleset with default format (vXX.ZZZ)
+uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner $OWNER --repo $REPO
+
+# Or specify three-part semantic versioning
+uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner $OWNER --repo $REPO --format vXX.YY.ZZZ
+
+# Replace existing ruleset if needed
+uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner $OWNER --repo $REPO --replace
+```
+
+**How it works:**
+- Creates a tag ruleset targeting all tags (`refs/tags/*`)
+- Excludes valid version patterns (allowing them to be created)
+- Applies "restrict creation" rule to block non-matching tags
+- Uses fnmatch patterns to match exact digit counts
+
+**Format details:**
+| Format | Patterns | Valid Examples | Blocked Examples |
+|--------|----------|----------------|------------------|
+| `vXX.ZZZ` | 6 | v1.2, v12.345, v99.999 | v1.2.3, v100.1 |
+| `vXX.YY.ZZZ` | 12 | v1.2.3, v12.34.567, v99.99.999 | v1.2, v1.2.3.4 |
 
 ## Verification Commands
 
