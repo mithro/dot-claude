@@ -3,7 +3,8 @@
 Setup GitHub tag ruleset to enforce version tag formats.
 
 This script creates a GitHub repository ruleset that restricts tag creation
-to only allow tags matching configurable version patterns.
+to only allow tags matching configurable version patterns. It can also create
+an initial version tag on the first commit to enable git-describe.
 
 Supported formats:
   - vXX.ZZZ: Two-part versioning (major.patch) [default]
@@ -14,6 +15,7 @@ Usage:
     uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner OWNER --repo REPO
     uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner OWNER --repo REPO --format vXX.YY.ZZZ
     uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner OWNER --repo REPO --format XX.YY.ZZZ
+    uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner OWNER --repo REPO --create-initial-tag
 
 Requirements:
     - GitHub CLI (gh) must be installed and authenticated
@@ -35,6 +37,7 @@ class VersionFormat:
     description: str
     prefix: str  # Tag prefix (e.g., "v" or "")
     segment_max_digits: list[int]  # Max digits for each segment
+    initial_tag: str  # Initial tag for first commit (e.g., "v0.0" or "0.0.0")
     examples_valid: list[str]
     examples_invalid: list[str]
 
@@ -45,6 +48,7 @@ VERSION_FORMATS = {
         description="Two-part versioning (major.patch)",
         prefix="v",
         segment_max_digits=[2, 3],  # XX.ZZZ
+        initial_tag="v0.0",
         examples_valid=["v0.0", "v1.2", "v12.345", "v99.999"],
         examples_invalid=["v1.2.3", "v100.1", "v1.1000"],
     ),
@@ -53,6 +57,7 @@ VERSION_FORMATS = {
         description="Three-part semantic versioning (major.minor.patch)",
         prefix="v",
         segment_max_digits=[2, 2, 3],  # XX.YY.ZZZ
+        initial_tag="v0.0.0",
         examples_valid=["v0.0.0", "v1.2.3", "v12.34.567", "v99.99.999"],
         examples_invalid=["v1.2", "v1.2.3.4", "v100.1.1", "v1.2.1000"],
     ),
@@ -61,6 +66,7 @@ VERSION_FORMATS = {
         description="Three-part semantic versioning without 'v' prefix",
         prefix="",
         segment_max_digits=[2, 2, 3],  # XX.YY.ZZZ
+        initial_tag="0.0.0",
         examples_valid=["0.0.0", "1.2.3", "12.34.567", "99.99.999"],
         examples_invalid=["1.2", "1.2.3.4", "100.1.1", "1.2.1000", "v1.2.3"],
     ),
@@ -133,6 +139,147 @@ def create_ruleset_payload(
     }
 
     return payload
+
+
+def get_first_commit(owner: str, repo: str) -> str | None:
+    """Get the SHA of the first commit in the repository's default branch."""
+    import re
+
+    # First get the default branch
+    result = subprocess.run(
+        [
+            "gh", "api",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            f"/repos/{owner}/{repo}",
+            "--jq", ".default_branch",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"Error getting default branch: {result.stderr}", file=sys.stderr)
+        return None
+
+    default_branch = result.stdout.strip()
+
+    # Get commits, paginate to find the first one
+    # Use per_page=1 and get the Link header to find total pages
+    result = subprocess.run(
+        [
+            "gh", "api",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            f"/repos/{owner}/{repo}/commits?sha={default_branch}&per_page=1",
+            "-i",  # Include headers
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"Error getting commits: {result.stderr}", file=sys.stderr)
+        return None
+
+    # Parse Link header to find last page
+    link_match = re.search(r'<[^>]+[?&]page=(\d+)[^>]*>;\s*rel="last"', result.stdout)
+    if link_match:
+        last_page = int(link_match.group(1))
+    else:
+        last_page = 1
+
+    # Get the last page (which contains the first commit)
+    result = subprocess.run(
+        [
+            "gh", "api",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            f"/repos/{owner}/{repo}/commits?sha={default_branch}&per_page=1&page={last_page}",
+            "--jq", ".[0].sha",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"Error getting first commit: {result.stderr}", file=sys.stderr)
+        return None
+
+    return result.stdout.strip()
+
+
+def check_tag_exists(owner: str, repo: str, tag_name: str) -> bool:
+    """Check if a tag already exists in the repository."""
+    result = subprocess.run(
+        [
+            "gh", "api",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            f"/repos/{owner}/{repo}/git/refs/tags/{tag_name}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def create_initial_tag(
+    owner: str, repo: str, tag_name: str, commit_sha: str, message: str
+) -> tuple[bool, str]:
+    """Create an annotated tag on the specified commit via GitHub API."""
+    # First create the tag object
+    tag_payload = json.dumps({
+        "tag": tag_name,
+        "message": message,
+        "object": commit_sha,
+        "type": "commit",
+    })
+
+    result = subprocess.run(
+        [
+            "gh", "api",
+            "--method", "POST",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            f"/repos/{owner}/{repo}/git/tags",
+            "--input", "-",
+        ],
+        input=tag_payload,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        return False, result.stderr
+
+    tag_response = json.loads(result.stdout)
+    tag_sha = tag_response.get("sha")
+
+    # Then create the reference pointing to the tag object
+    ref_payload = json.dumps({
+        "ref": f"refs/tags/{tag_name}",
+        "sha": tag_sha,
+    })
+
+    result = subprocess.run(
+        [
+            "gh", "api",
+            "--method", "POST",
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "X-GitHub-Api-Version: 2022-11-28",
+            f"/repos/{owner}/{repo}/git/refs",
+            "--input", "-",
+        ],
+        input=ref_payload,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        return True, result.stdout
+    else:
+        return False, result.stderr
 
 
 def check_existing_rulesets(owner: str, repo: str) -> list[dict]:
@@ -248,11 +395,50 @@ Supported formats:
         action="store_true",
         help="Replace existing ruleset with the same name",
     )
+    parser.add_argument(
+        "--create-initial-tag",
+        action="store_true",
+        help="Create initial version tag on the first commit (enables git-describe)",
+    )
 
     args = parser.parse_args()
 
     # Get the version format configuration
     version_format = VERSION_FORMATS[args.version_format]
+
+    # Handle initial tag creation
+    if args.create_initial_tag:
+        tag_name = version_format.initial_tag
+        print(f"Checking for existing tag '{tag_name}'...")
+
+        if check_tag_exists(args.owner, args.repo, tag_name):
+            print(f"  Tag '{tag_name}' already exists, skipping creation")
+        else:
+            print(f"Finding first commit in {args.owner}/{args.repo}...")
+            first_commit = get_first_commit(args.owner, args.repo)
+
+            if not first_commit:
+                print("Error: Could not find first commit", file=sys.stderr)
+                sys.exit(1)
+
+            print(f"  First commit: {first_commit[:12]}")
+
+            if args.dry_run:
+                print(f"\nDry run - would create annotated tag '{tag_name}' on commit {first_commit[:12]}")
+            else:
+                print(f"Creating annotated tag '{tag_name}'...")
+                message = "Initial version tag for git-describe support"
+                success, output = create_initial_tag(
+                    args.owner, args.repo, tag_name, first_commit, message
+                )
+
+                if success:
+                    print(f"  Successfully created tag '{tag_name}'")
+                else:
+                    print(f"  Failed to create tag: {output}", file=sys.stderr)
+                    sys.exit(1)
+
+        print()
 
     # Set default name if not provided
     ruleset_name = args.name or f"Enforce {version_format.name} version tags"
