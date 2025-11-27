@@ -8,10 +8,12 @@ to only allow tags matching configurable version patterns.
 Supported formats:
   - vXX.ZZZ: Two-part versioning (major.patch) [default]
   - vXX.YY.ZZZ: Three-part semantic versioning (major.minor.patch)
+  - XX.YY.ZZZ: Three-part semantic versioning without 'v' prefix
 
 Usage:
     uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner OWNER --repo REPO
     uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner OWNER --repo REPO --format vXX.YY.ZZZ
+    uv run python ~/.claude/scripts/setup_tag_ruleset.py --owner OWNER --repo REPO --format XX.YY.ZZZ
 
 Requirements:
     - GitHub CLI (gh) must be installed and authenticated
@@ -31,6 +33,7 @@ class VersionFormat:
 
     name: str
     description: str
+    prefix: str  # Tag prefix (e.g., "v" or "")
     segment_max_digits: list[int]  # Max digits for each segment
     examples_valid: list[str]
     examples_invalid: list[str]
@@ -40,6 +43,7 @@ VERSION_FORMATS = {
     "vXX.ZZZ": VersionFormat(
         name="vXX.ZZZ",
         description="Two-part versioning (major.patch)",
+        prefix="v",
         segment_max_digits=[2, 3],  # XX.ZZZ
         examples_valid=["v0.0", "v1.2", "v12.345", "v99.999"],
         examples_invalid=["v1.2.3", "v100.1", "v1.1000"],
@@ -47,9 +51,18 @@ VERSION_FORMATS = {
     "vXX.YY.ZZZ": VersionFormat(
         name="vXX.YY.ZZZ",
         description="Three-part semantic versioning (major.minor.patch)",
+        prefix="v",
         segment_max_digits=[2, 2, 3],  # XX.YY.ZZZ
-        examples_valid=["v0.0.1", "v1.2.3", "v12.34.567", "v99.99.999"],
+        examples_valid=["v0.0.0", "v1.2.3", "v12.34.567", "v99.99.999"],
         examples_invalid=["v1.2", "v1.2.3.4", "v100.1.1", "v1.2.1000"],
+    ),
+    "XX.YY.ZZZ": VersionFormat(
+        name="XX.YY.ZZZ",
+        description="Three-part semantic versioning without 'v' prefix",
+        prefix="",
+        segment_max_digits=[2, 2, 3],  # XX.YY.ZZZ
+        examples_valid=["0.0.0", "1.2.3", "12.34.567", "99.99.999"],
+        examples_invalid=["1.2", "1.2.3.4", "100.1.1", "1.2.1000", "v1.2.3"],
     ),
 }
 
@@ -88,7 +101,7 @@ def generate_version_patterns(version_format: VersionFormat) -> list[str]:
     patterns = []
     for combo in combinations:
         version_part = ".".join(combo)
-        pattern = f"refs/tags/v{version_part}"
+        pattern = f"refs/tags/{version_format.prefix}{version_part}"
         patterns.append(pattern)
 
     return patterns
@@ -197,6 +210,10 @@ Supported formats:
   vXX.YY.ZZZ  Three-part semantic versioning (major.minor.patch)
               XX: 1-2 digits, YY: 1-2 digits, ZZZ: 1-3 digits
               Examples: v1.2.3, v12.34.567, v99.99.999
+
+  XX.YY.ZZZ   Three-part semantic versioning without 'v' prefix
+              XX: 1-2 digits, YY: 1-2 digits, ZZZ: 1-3 digits
+              Examples: 1.2.3, 12.34.567, 99.99.999
 """,
     )
     parser.add_argument(
