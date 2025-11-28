@@ -23,9 +23,9 @@ gh api graphql -f query="mutation { updateRepository(input: { repositoryId: \"$R
 
 # Configure merge options - only allow merge commits
 gh repo edit $REPO \
-  --allow-squash-merge=false \
-  --allow-rebase-merge=false \
-  --allow-merge-commit=true
+  --enable-squash-merge=false \
+  --enable-rebase-merge=false \
+  --enable-merge-commit=true
 
 # Enable automatic deletion of head branches after merge
 gh repo edit $REPO --delete-branch-on-merge=true
@@ -45,17 +45,16 @@ gh api repos/$REPO -X PATCH -f allow_update_branch=true
 
 # Protect the default branch (usually 'main' or 'master')
 DEFAULT_BRANCH=$(gh repo view $REPO --json defaultBranchRef --jq .defaultBranchRef.name)
-gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT -f required_status_checks=null \
-  -f enforce_admins=false \
-  -f required_pull_request_reviews=null \
-  -f restrictions=null \
-  -f allow_force_pushes=false \
-  -f allow_deletions=false
-
-# Create initial tag for git-describe
-FIRST_COMMIT=$(git log --reverse --format=%H | head -1)
-git tag v0.0 $FIRST_COMMIT
-git push origin v0.0
+gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT --input - <<'EOF'
+{
+  "required_status_checks": null,
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+EOF
 
 # Setup tag version format enforcement (ask user for format preference)
 # Default: vXX.ZZZ, Alternative: vXX.YY.ZZZ
@@ -95,12 +94,16 @@ gh api repos/$REPO -X PATCH -f security_and_analysis[secret_scanning_push_protec
 DEFAULT_BRANCH=$(gh repo view $REPO --json defaultBranchRef --jq .defaultBranchRef.name)
 
 # Apply branch protection to prevent force pushes
-gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT -f required_status_checks=null \
-  -f enforce_admins=false \
-  -f required_pull_request_reviews=null \
-  -f restrictions=null \
-  -f allow_force_pushes=false \
-  -f allow_deletions=false
+gh api repos/$REPO/branches/$DEFAULT_BRANCH/protection -X PUT --input - <<'EOF'
+{
+  "required_status_checks": null,
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+EOF
 ```
 
 ### 4. Disable Wiki, Projects, and Discussions
@@ -119,9 +122,9 @@ gh api graphql -f query="mutation { updateRepository(input: { repositoryId: \"$R
 ```bash
 # Only allow merge commits (disable squash and rebase merge)
 gh repo edit $REPO \
-  --allow-squash-merge=false \
-  --allow-rebase-merge=false \
-  --allow-merge-commit=true
+  --enable-squash-merge=false \
+  --enable-rebase-merge=false \
+  --enable-merge-commit=true
 ```
 
 ### 6. Enable Always Suggest Updating Pull Request Branches
@@ -151,7 +154,7 @@ To enable this setting:
 - [GitHub Docs: Managing Git LFS objects in archives](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/managing-git-lfs-objects-in-archives-of-your-repository)
 - No API parameter exists for this setting (verified via REST API docs and GraphQL introspection)
 
-### 8. Create Initial Tag for git-describe
+### 9. Create Initial Tag for git-describe
 
 Create an initial version tag on the first commit to enable `git-describe` to work properly:
 
@@ -181,7 +184,7 @@ v0.0-37-g3a3ceb5
 ```
 This means: 37 commits after tag v0.0, current commit hash g3a3ceb5
 
-### 9. Enforce Tag Version Format
+### 10. Enforce Tag Version Format
 
 Use the `setup_tag_ruleset.py` script to create a GitHub ruleset that restricts tag creation to only allow properly formatted version tags.
 
