@@ -43,6 +43,16 @@
             "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/tim/github/mithro/dot-claude/scripts/block_stderr_to_null.py",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
