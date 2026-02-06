@@ -24,6 +24,13 @@ history.jsonl
 plugins/
 file-history/
 debug/
+cache/
+paste-cache/
+plans/
+tasks/
+telemetry/
+security_warnings_state_*.json
+stats-cache.json
 
 # Python cache
 __pycache__/
