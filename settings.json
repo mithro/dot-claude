@@ -53,6 +53,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/tim/github/mithro/dot-claude/scripts/block_tmp_creation.py",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
