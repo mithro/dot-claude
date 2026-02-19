@@ -1,3 +1,18 @@
+## About this repo
+
+This is a `~/.claude` configuration repo (symlinked from `~/github/mithro/dot-claude`). It contains global Claude Code settings, custom agents, and hook enforcement scripts that apply across all projects.
+
+### Structure
+
+- `settings.json` — Permissions, hooks, plugin preferences, and status line config
+- `CLAUDE.md` — Global behavioural rules (this file)
+- `GitHub.md` — Standard GitHub repository setup commands and settings
+- `scripts/` — PreToolUse hook scripts that enforce rules with hard denials
+- `agents/` — Custom specialized agents (code-reviewer, debugger, security-auditor, etc.)
+- `docs/plans/` — Design documents and implementation plans
+
+---
+
 - You **really, really, suck** at writing bash/shell as you always get the escaping wrong. You thus **MUST** use python (which you get right more often) for anything which has more than two commands, loops, if statements or command subsitutions.
 - **ALWAYS** use `uv` for all Python commands by default. Use `uv run` to execute Python scripts and `uv pip` for package management. Never use plain `python`, `python3`, or `pip` commands - always prefix with `uv`.
 - **NEVER** create files in `/tmp/`. A PreToolUse hook enforces this and will **deny** any Write, Edit, or Bash command that creates files there. Instead, use a project-local `tmp/` directory (e.g. `mkdir -p ./tmp`). Make sure that you **ALWAYS** cleanup any tmp files. Every file you don't remove causes many cute puppies to die. Do you want to be responsible for killing cute puppies?
