@@ -1,68 +1,84 @@
 # dot-claude
 
-Personal [Claude Code](https://claude.com/claude-code) configuration.
-
-## Overview
-
-This repository contains my personal Claude Code configuration files, including global instructions, custom agents, and hook configurations.
-
-## Contents
-
-- **CLAUDE.md** - Global instructions that Claude Code follows across all projects
-- **agents/** - Custom specialized agents for various development tasks
-- **settings.json** - Hook configurations and personal preferences
-- **.gitignore** - Files to exclude from version control
+Personal [Claude Code](https://claude.com/claude-code) plugin marketplace.
 
 ## Setup
 
-To use this configuration:
-
 ```bash
-# Clone this repository
-git clone https://github.com/mithro/dot-claude.git ~/github/mithro/dot-claude
-
-# Create symlink (backup existing config first if needed)
-mv ~/.claude ~/.claude.backup
-ln -s ~/github/mithro/dot-claude ~/.claude
+claude plugin marketplace add github:mithro/dot-claude
 ```
 
-## Notification System
-
-This configuration uses [claude-notify-gnome](https://github.com/mithro/claude-notify-gnome) for desktop notifications. The hooks in `settings.json` point to the notification tool at its installed location.
-
-To set up the notification system:
+Then enable plugins per-machine:
 
 ```bash
-# Clone and set up the notification tool
-git clone https://github.com/mithro/claude-notify-gnome.git ~/github/mithro/claude-notify-gnome
-cd ~/github/mithro/claude-notify-gnome
-# Follow setup instructions in that repository's README
+claude plugin enable agent-debugger@mithro-personal
+claude plugin enable hook-block-tmp-creation@mithro-personal
+claude plugin enable my-conventions@mithro-personal
+# etc.
 ```
 
-## Configuration
+## Plugins
 
-### CLAUDE.md
+### Agents (19)
 
-Contains global instructions that override default Claude Code behavior:
-- Prefer Python over bash for complex scripts (to avoid escaping issues)
-- Use temporary directories in project directory instead of /tmp
-- Always verify assumptions and double-check work
-- Provide detailed proof for claims
+Specialized agents for various development tasks:
 
-### Custom Agents
+| Plugin | Description |
+|--------|-------------|
+| `agent-accessibility-tester` | WCAG 2.1 compliance, semantic HTML, ARIA, keyboard nav |
+| `agent-api-designer` | REST API design, DRF, OpenAPI, versioning |
+| `agent-backend-architect` | Scalable API design, microservices, distributed systems |
+| `agent-celery-expert` | Async task debugging, retry strategies, queue management |
+| `agent-code-reviewer` | Code quality, security vulnerabilities, best practices |
+| `agent-data-scientist` | SQL optimization, Django ORM, data visualization, Pandas |
+| `agent-debugger` | Root cause analysis, systematic debugging, profiling |
+| `agent-deployment-engineer` | Production deployment, zero-downtime, WSGI/ASGI |
+| `agent-devops-engineer` | CI/CD, Docker, GitHub Actions, infrastructure as code |
+| `agent-django-developer` | Django 5.2+, REST APIs, async views, Celery |
+| `agent-documentation-writer` | API docs, docstrings, architecture docs |
+| `agent-error-detective` | Error patterns, stack traces, Sentry integration |
+| `agent-performance-engineer` | Profiling, caching, async performance, optimization |
+| `agent-postgres-pro` | PostgreSQL 17, JSONB, full-text search, query tuning |
+| `agent-python-pro` | Modern Python 3.11+, type safety, async programming |
+| `agent-security-auditor` | OWASP Top 10, dependency scanning, security review |
+| `agent-solution-researcher` | Multi-approach evaluation, trade-off analysis |
+| `agent-sre-engineer` | Monitoring, observability, incident response, SLOs |
+| `agent-test-specialist` | Django/pytest, browser testing, test coverage |
 
-The `agents/` directory contains specialized agents for various tasks. These agents are automatically available in Claude Code for handling specific types of work.
+### Hooks (4)
 
-### Hooks
+Enforcement hooks that deny dangerous operations:
 
-The `settings.json` file configures hooks that trigger at various points:
-- **Notification** - When Claude sends a notification
-- **UserPromptSubmit** - When user submits a prompt
-- **PreToolUse** - Before Claude uses a tool
-- **PostToolUse** - After Claude uses a tool
-- **Stop** - When Claude stops generating
+| Plugin | Description |
+|--------|-------------|
+| `hook-block-tmp-creation` | Blocks file creation in `/tmp/` (use project-local `tmp/`) |
+| `hook-block-stderr-to-null` | Blocks `2>/dev/null` (keep diagnostic output visible) |
+| `hook-block-ssh-hash-hostnames` | Blocks SSH `-H` flag and `HashKnownHosts` (keep known_hosts readable) |
+| `hook-safe-force-push` | Blocks bare `git push --force` (use `git safe-force-push <branch>`) |
 
-All hooks currently point to the [claude-notify-gnome](https://github.com/mithro/claude-notify-gnome) notification tool.
+### Productivity (2)
+
+| Plugin | Description |
+|--------|-------------|
+| `my-conventions` | Personal coding conventions: Python/uv, ISO dates, small commits, Apache 2.0, etc. |
+| `github-repo-setup` | GitHub repository configuration skill and tag ruleset script |
+
+## Structure
+
+```
+dot-claude/
+├── .claude-plugin/
+│   └── marketplace.json          # Marketplace catalog (25 plugins)
+├── marketplace/
+│   ├── agent-*/                  # 19 agent plugins
+│   ├── hook-*/                   # 4 hook enforcement plugins
+│   ├── my-conventions/           # Coding conventions (SessionStart hook)
+│   └── github-repo-setup/       # GitHub config skill + scripts
+├── settings.json                 # Repo-level permissions
+├── CLAUDE.md                     # Repo description
+├── GitHub.md                     # Reference: GitHub setup commands
+└── LICENSE                       # Apache 2.0
+```
 
 ## License
 
