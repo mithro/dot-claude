@@ -1,0 +1,8 @@
+{
+  "name": "agent-deployment-engineer",
+  "description": "Deployment automation specialist for Django 5.2+ applications. Expert in production deployment strategies, zero-downtime deployments, WSGI/ASGI configuration, Nginx setup, environment management, database migrations, Celery deployment, health checks, and rollback procedures. Use PROACTIVELY for deployment tasks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

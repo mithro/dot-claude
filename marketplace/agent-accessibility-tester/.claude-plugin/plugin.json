@@ -1,0 +1,8 @@
+{
+  "name": "agent-accessibility-tester",
+  "description": "Web accessibility (A11y) specialist focusing on WCAG 2.1 Level AA compliance, semantic HTML, ARIA attributes, keyboard navigation, screen reader compatibility, color contrast, Django template accessibility patterns, automated testing (axe-core, pa11y), and manual testing procedures. Use PROACTIVELY for accessibility audits and compliance verification.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

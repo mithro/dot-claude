@@ -1,0 +1,8 @@
+{
+  "name": "agent-documentation-writer",
+  "description": "Technical documentation specialist for Django 5.2+ projects. Expert in API documentation (DRF, OpenAPI/Swagger, drf-spectacular), code documentation (docstrings, type hints), README guides, architecture docs, Sphinx documentation, and tutorial writing. Use PROACTIVELY for documentation tasks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

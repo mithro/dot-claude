@@ -1,0 +1,8 @@
+{
+  "name": "agent-code-reviewer",
+  "description": "Expert code reviewer specializing in code quality, security vulnerabilities, and best practices across multiple languages. Masters static analysis, design patterns, and performance optimization with focus on maintainability and technical debt reduction. Use PROACTIVELY after significant code changes.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

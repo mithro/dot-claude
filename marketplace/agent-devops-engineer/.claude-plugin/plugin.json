@@ -1,0 +1,8 @@
+{
+  "name": "agent-devops-engineer",
+  "description": "DevOps engineer for CI/CD, containerization, infrastructure automation, deployment strategies, and production operations. Expert in Docker, GitHub Actions, infrastructure as code, monitoring, and reliability engineering. Use PROACTIVELY for deployment and infrastructure tasks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

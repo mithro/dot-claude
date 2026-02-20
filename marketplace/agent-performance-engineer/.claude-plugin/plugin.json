@@ -1,0 +1,8 @@
+{
+  "name": "agent-performance-engineer",
+  "description": "Performance optimization specialist for bottleneck identification, profiling, tuning, and scalability. Expert in database query optimization, caching strategies, async performance, resource utilization, and production performance monitoring. Use PROACTIVELY for performance issues.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}
