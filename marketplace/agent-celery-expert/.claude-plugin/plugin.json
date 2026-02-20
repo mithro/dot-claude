@@ -1,0 +1,8 @@
+{
+  "name": "agent-celery-expert",
+  "description": "Celery task specialist for async task debugging, monitoring, retry strategies, performance optimization, and distributed task orchestration. Expert in task design patterns, error handling, queue management, and production debugging. Use PROACTIVELY for Celery-related work.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}
