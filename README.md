@@ -5,7 +5,7 @@ Personal [Claude Code](https://claude.com/claude-code) plugin marketplace.
 ## Setup
 
 ```bash
-claude plugin marketplace add github:mithro/dot-claude
+claude plugin marketplace add mithro/dot-claude
 ```
 
 Then enable plugins per-machine:
@@ -45,7 +45,7 @@ Specialized agents for various development tasks:
 | `agent-sre-engineer` | Monitoring, observability, incident response, SLOs |
 | `agent-test-specialist` | Django/pytest, browser testing, test coverage |
 
-### Hooks (4)
+### Hooks (5)
 
 Enforcement hooks that deny dangerous operations:
 
@@ -54,6 +54,7 @@ Enforcement hooks that deny dangerous operations:
 | `hook-block-tmp-creation` | Blocks file creation in `/tmp/` (use project-local `tmp/`) |
 | `hook-block-stderr-to-null` | Blocks `2>/dev/null` (keep diagnostic output visible) |
 | `hook-block-ssh-hash-hostnames` | Blocks SSH `-H` flag and `HashKnownHosts` (keep known_hosts readable) |
+| `hook-block-inline-scripts` | Blocks `python -c` and heredocs (write to a file first) |
 | `hook-safe-force-push` | Blocks bare `git push --force` (use `git safe-force-push <branch>`) |
 
 ### Productivity (2)
@@ -68,10 +69,10 @@ Enforcement hooks that deny dangerous operations:
 ```
 dot-claude/
 ├── .claude-plugin/
-│   └── marketplace.json          # Marketplace catalog (25 plugins)
+│   └── marketplace.json          # Marketplace catalog (26 plugins)
 ├── marketplace/
 │   ├── agent-*/                  # 19 agent plugins
-│   ├── hook-*/                   # 4 hook enforcement plugins
+│   ├── hook-*/                   # 5 hook enforcement plugins
 │   ├── my-conventions/           # Coding conventions (SessionStart hook)
 │   └── github-repo-setup/       # GitHub config skill + scripts
 ├── settings.json                 # Repo-level permissions

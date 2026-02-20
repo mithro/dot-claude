@@ -5,7 +5,7 @@ This is a personal Claude Code plugin marketplace (`mithro-personal`).
 ### Setup
 
 ```
-claude plugin marketplace add github:mithro/dot-claude
+claude plugin marketplace add mithro/dot-claude
 ```
 
 ### Structure
@@ -18,6 +18,6 @@ claude plugin marketplace add github:mithro/dot-claude
 ### Plugins
 
 - `agent-*` — 19 specialized agents (code-reviewer, debugger, django-developer, etc.)
-- `hook-*` — 4 enforcement hooks (block /tmp, stderr, SSH hash, force-push)
+- `hook-*` — 5 enforcement hooks (block /tmp, stderr, SSH hash, force-push, inline scripts)
 - `my-conventions` — Universal coding conventions (Python/uv, dates, commits, etc.)
 - `github-repo-setup` — GitHub repository configuration tools and skills
