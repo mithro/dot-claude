@@ -21,6 +21,10 @@ DENY_PYTHON_C = """\u274c **`python -c` blocked by hook**
 Inline `python -c "..."` requires shell escaping of quotes, backslashes,
 and special characters. This is fragile and error-prone.
 
+Long inline commands also break permission auto-allow rules (e.g.
+`Bash(uv:*)`) because the entire command becomes a single complex string
+that can't be matched by simple prefix patterns.
+
 **Write it to a file instead:**
 ```bash
 # 1. Use the Write tool to create the script
@@ -33,6 +37,10 @@ DENY_UNQUOTED_HEREDOC = """\u274c **Unquoted/double-quoted heredoc blocked by ho
 
 Heredocs without single-quoted delimiters perform variable expansion
 and require escaping of `$`, backticks, and backslashes inside the body.
+
+Long inline commands also break permission auto-allow rules (e.g.
+`Bash(git commit:*)`) because the entire command becomes a single complex
+string that can't be matched by simple prefix patterns.
 
 **Use a single-quoted delimiter instead:**
 ```bash
