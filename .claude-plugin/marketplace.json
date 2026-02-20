@@ -1,0 +1,184 @@
+{
+  "name": "mithro-personal",
+  "description": "Personal Claude Code plugins \u2014 agents, enforcement hooks, and conventions",
+  "owner": {
+    "name": "Tim Ansell"
+  },
+  "plugins": [
+    {
+      "name": "agent-accessibility-tester",
+      "description": "Web accessibility (A11y) specialist focusing on WCAG 2.1 Level AA compliance, semantic HTML, ARIA attributes, keyboard navigation, screen reader compatibility, color contrast, Django template acces...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-accessibility-tester",
+      "category": "agents"
+    },
+    {
+      "name": "agent-api-designer",
+      "description": "API architecture expert for REST API design, documentation, consistency, versioning, and best practices. Specializes in Django REST Framework, OpenAPI/Swagger, API security, performance optimizatio...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-api-designer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-backend-architect",
+      "description": "Backend architect for scalable API design, microservices, distributed systems, and architectural patterns. Expert in system design, service boundaries, data architecture, event-driven systems, and ...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-backend-architect",
+      "category": "agents"
+    },
+    {
+      "name": "agent-celery-expert",
+      "description": "Celery task specialist for async task debugging, monitoring, retry strategies, performance optimization, and distributed task orchestration. Expert in task design patterns, error handling, queue ma...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-celery-expert",
+      "category": "agents"
+    },
+    {
+      "name": "agent-code-reviewer",
+      "description": "Expert code reviewer specializing in code quality, security vulnerabilities, and best practices across multiple languages. Masters static analysis, design patterns, and performance optimization wit...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-code-reviewer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-data-scientist",
+      "description": "Data analysis and insights specialist for Django applications. Expert in SQL query optimization, Django ORM aggregations, data visualization strategies, statistical analysis, Pandas integration, re...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-data-scientist",
+      "category": "agents"
+    },
+    {
+      "name": "agent-debugger",
+      "description": "Expert debugger for complex issue diagnosis, root cause analysis, systematic debugging, and problem solving. Specializes in Django debugging, async issues, database problems, performance bottleneck...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-debugger",
+      "category": "agents"
+    },
+    {
+      "name": "agent-deployment-engineer",
+      "description": "Deployment automation specialist for Django 5.2+ applications. Expert in production deployment strategies, zero-downtime deployments, WSGI/ASGI configuration, Nginx setup, environment management, d...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-deployment-engineer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-devops-engineer",
+      "description": "DevOps engineer for CI/CD, containerization, infrastructure automation, deployment strategies, and production operations. Expert in Docker, GitHub Actions, infrastructure as code, monitoring, and r...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-devops-engineer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-django-developer",
+      "description": "Expert Django developer mastering Django 5.2+ with modern Python practices. Specializes in scalable web applications, REST API development, async views, Celery tasks, and enterprise patterns with f...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-django-developer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-documentation-writer",
+      "description": "Technical documentation specialist for Django 5.2+ projects. Expert in API documentation (DRF, OpenAPI/Swagger, drf-spectacular), code documentation (docstrings, type hints), README guides, archite...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-documentation-writer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-error-detective",
+      "description": "Error analysis and resolution specialist focusing on error pattern recognition, stack trace analysis, root cause analysis methodologies, error tracking integration (Sentry), Django error handling b...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-error-detective",
+      "category": "agents"
+    },
+    {
+      "name": "agent-performance-engineer",
+      "description": "Performance optimization specialist for bottleneck identification, profiling, tuning, and scalability. Expert in database query optimization, caching strategies, async performance, resource utiliza...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-performance-engineer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-postgres-pro",
+      "description": "PostgreSQL 17 database expert specializing in advanced features (JSONB, full-text search, CTEs, window functions), schema design, performance optimization, and Django ORM advanced patterns. Expert ...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-postgres-pro",
+      "category": "agents"
+    },
+    {
+      "name": "agent-python-pro",
+      "description": "Expert Python developer specializing in modern Python 3.11+ development with deep expertise in type safety, async programming, data science, and web frameworks. Masters Pythonic patterns while ensu...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-python-pro",
+      "category": "agents"
+    },
+    {
+      "name": "agent-security-auditor",
+      "description": "Security vulnerability assessment specialist focusing on OWASP Top 10, Django security best practices, dependency scanning, and comprehensive security code review. Expert in authentication, authori...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-security-auditor",
+      "category": "agents"
+    },
+    {
+      "name": "agent-solution-researcher",
+      "description": "Use this agent when you need to explore multiple approaches to solving a coding problem, evaluate different technical solutions, or provide informed recommendations on implementation strategies. Th...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-solution-researcher",
+      "category": "agents"
+    },
+    {
+      "name": "agent-sre-engineer",
+      "description": "Site Reliability Engineering specialist focusing on system monitoring, observability, logging strategies, incident response, SLO/SLI/SLA management, error budgets, capacity planning, performance mo...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-sre-engineer",
+      "category": "agents"
+    },
+    {
+      "name": "agent-test-specialist",
+      "description": "Testing expert for Django/pytest with browser testing. Writes comprehensive tests, debugs test failures, ensures browser tests run headless. Enforces CLAUDECODE headless browser requirements. Use P...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-test-specialist",
+      "category": "agents"
+    },
+    {
+      "name": "github-repo-setup",
+      "description": "GitHub repository configuration \u2014 standard settings, branch protection, tag rulesets, and security setup",
+      "version": "1.0.0",
+      "source": "./marketplace/github-repo-setup",
+      "category": "productivity"
+    },
+    {
+      "name": "hook-block-ssh-hash-hostnames",
+      "description": "Blocks SSH hostname hashing (-H flag and HashKnownHosts=yes) \u2014 keeps known_hosts readable",
+      "version": "1.0.0",
+      "source": "./marketplace/hook-block-ssh-hash-hostnames",
+      "category": "security"
+    },
+    {
+      "name": "hook-block-stderr-to-null",
+      "description": "Blocks commands that redirect stderr to /dev/null \u2014 stderr contains valuable diagnostic information",
+      "version": "1.0.0",
+      "source": "./marketplace/hook-block-stderr-to-null",
+      "category": "security"
+    },
+    {
+      "name": "hook-block-tmp-creation",
+      "description": "Blocks file creation in /tmp/ \u2014 forces use of project-local tmp/ directories instead",
+      "version": "1.0.0",
+      "source": "./marketplace/hook-block-tmp-creation",
+      "category": "security"
+    },
+    {
+      "name": "hook-safe-force-push",
+      "description": "Blocks unsafe git push --force/--force-with-lease without explicit branch \u2014 use git safe-force-push instead",
+      "version": "1.0.0",
+      "source": "./marketplace/hook-safe-force-push",
+      "category": "security"
+    },
+    {
+      "name": "my-conventions",
+      "description": "Personal coding conventions \u2014 Python/uv preferences, date formats, commit style, and safety rules",
+      "version": "1.0.0",
+      "source": "./marketplace/my-conventions",
+      "category": "productivity"
+    }
+  ]
+}
