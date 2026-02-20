@@ -1,0 +1,6 @@
+{
+  "name": "hook-block-ssh-hash-hostnames",
+  "description": "Blocks SSH hostname hashing (-H flag and HashKnownHosts=yes) — keeps known_hosts readable",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}
