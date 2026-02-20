@@ -1,6 +1,6 @@
 ## About this repo
 
-This is a personal Claude Code plugin marketplace (`mithro-personal`), symlinked from `~/github/mithro/dot-claude` to `~/.claude`.
+This is a personal Claude Code plugin marketplace (`mithro-personal`).
 
 ### Setup
 
