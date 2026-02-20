@@ -167,6 +167,13 @@
       "category": "security"
     },
     {
+      "name": "hook-block-inline-scripts",
+      "description": "Blocks inline code execution (python -c, heredocs) \u2014 write to a file first, then execute it",
+      "version": "1.0.0",
+      "source": "./marketplace/hook-block-inline-scripts",
+      "category": "security"
+    },
+    {
       "name": "hook-safe-force-push",
       "description": "Blocks unsafe git push --force/--force-with-lease without explicit branch \u2014 use git safe-force-push instead",
       "version": "1.0.0",
