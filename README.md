@@ -45,7 +45,7 @@ Specialized agents for various development tasks:
 | `agent-sre-engineer` | Monitoring, observability, incident response, SLOs |
 | `agent-test-specialist` | Django/pytest, browser testing, test coverage |
 
-### Hooks (5)
+### Hooks (6)
 
 Enforcement hooks that deny dangerous operations:
 
@@ -54,6 +54,7 @@ Enforcement hooks that deny dangerous operations:
 | `hook-block-tmp-creation` | Blocks file creation in `/tmp/` (use project-local `tmp/`) |
 | `hook-block-stderr-to-null` | Blocks `2>/dev/null` (keep diagnostic output visible) |
 | `hook-block-ssh-hash-hostnames` | Blocks SSH `-H` flag and `HashKnownHosts` (keep known_hosts readable) |
+| `hook-block-ssh-unsafe-options` | Blocks `StrictHostKeyChecking=no` and `UserKnownHostsFile=/dev/null` |
 | `hook-block-inline-scripts` | Blocks `python -c` and heredocs (write to a file first) |
 | `hook-safe-force-push` | Blocks bare `git push --force` (use `git safe-force-push <branch>`) |
 
@@ -69,10 +70,10 @@ Enforcement hooks that deny dangerous operations:
 ```
 dot-claude/
 ├── .claude-plugin/
-│   └── marketplace.json          # Marketplace catalog (26 plugins)
+│   └── marketplace.json          # Marketplace catalog (27 plugins)
 ├── marketplace/
 │   ├── agent-*/                  # 19 agent plugins
-│   ├── hook-*/                   # 5 hook enforcement plugins
+│   ├── hook-*/                   # 6 hook enforcement plugins
 │   ├── my-conventions/           # Coding conventions (SessionStart hook)
 │   └── github-repo-setup/       # GitHub config skill + scripts
 ├── settings.json                 # Repo-level permissions

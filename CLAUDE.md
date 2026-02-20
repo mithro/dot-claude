@@ -18,6 +18,6 @@ claude plugin marketplace add mithro/dot-claude
 ### Plugins
 
 - `agent-*` — 19 specialized agents (code-reviewer, debugger, django-developer, etc.)
-- `hook-*` — 5 enforcement hooks (block /tmp, stderr, SSH hash, force-push, inline scripts)
+- `hook-*` — 6 enforcement hooks (block /tmp, stderr, SSH hash, SSH unsafe options, force-push, inline scripts)
 - `my-conventions` — Universal coding conventions (Python/uv, dates, commits, etc.)
 - `github-repo-setup` — GitHub repository configuration tools and skills
