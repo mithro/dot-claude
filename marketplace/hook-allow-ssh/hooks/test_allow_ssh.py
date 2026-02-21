@@ -13,11 +13,12 @@ import allow_ssh
 
 # Test config
 TEST_CONFIG = [
-    {"host": "server.example.com", "user": "tim", "sudo": True},
+    {"host": "server.example.com", "user": "tim", "permit-root-access": True},
+    {"host": "restricted.example.com", "user": "tim"},  # no root access
     {"host": "workstation.local", "user": "root", "permit-root-access": True},
     {"host": "rootbox.example.com", "user": "root"},  # root user but no permit-root-access
-    {"host": "anyuser.example.com"},  # no user restriction, no sudo, no root
-    {"host": "fullaccess.example.com", "sudo": True, "permit-root-access": True},
+    {"host": "anyuser.example.com"},  # no user restriction, no root access
+    {"host": "fullaccess.example.com", "permit-root-access": True},
 ]
 
 
@@ -209,16 +210,16 @@ def test_check_command_ssh_allowed():
 
 
 def test_check_command_ssh_sudo_allowed():
-    """ssh sudo to host with sudo: true."""
+    """ssh sudo to host with permit-root-access: true."""
     assert allow_ssh.check_command(
         'ssh tim@server.example.com sudo systemctl restart nginx', TEST_CONFIG
     ) is True
 
 
 def test_check_command_ssh_sudo_denied():
-    """ssh sudo to host without sudo: true."""
+    """ssh sudo to host without permit-root-access."""
     assert allow_ssh.check_command(
-        'ssh root@workstation.local sudo reboot', TEST_CONFIG
+        'ssh tim@restricted.example.com sudo reboot', TEST_CONFIG
     ) is False
 
 
@@ -250,8 +251,8 @@ def test_check_command_ssh_any_user_root_denied():
     ) is False
 
 
-def test_check_command_ssh_any_user_no_sudo():
-    """ssh sudo to host with no user restriction but no sudo."""
+def test_check_command_ssh_any_user_no_root_access():
+    """ssh sudo to host without permit-root-access."""
     assert allow_ssh.check_command(
         'ssh tim@anyuser.example.com sudo reboot', TEST_CONFIG
     ) is False
@@ -381,14 +382,14 @@ def test_check_command_root_without_permit():
 
 
 def test_check_command_root_full_access():
-    """ssh root@ to host with both sudo and permit-root-access."""
+    """ssh root@ to host with permit-root-access: true."""
     assert allow_ssh.check_command(
         'ssh root@fullaccess.example.com ls', TEST_CONFIG
     ) is True
 
 
 def test_check_command_root_full_access_sudo():
-    """ssh root@ sudo to host with both sudo and permit-root-access."""
+    """ssh root@ sudo to host with permit-root-access: true."""
     assert allow_ssh.check_command(
         'ssh root@fullaccess.example.com sudo systemctl restart nginx', TEST_CONFIG
     ) is True
@@ -415,6 +416,27 @@ def test_check_command_scp_root_tmp_allowed():
     """scp as root to /tmp/ with permit-root-access."""
     assert allow_ssh.check_command(
         'scp localfile.txt root@fullaccess.example.com:/tmp/file', TEST_CONFIG
+    ) is True
+
+
+def test_check_command_restricted_basic():
+    """Basic command on restricted host (no root access) should work."""
+    assert allow_ssh.check_command(
+        'ssh tim@restricted.example.com ls', TEST_CONFIG
+    ) is True
+
+
+def test_check_command_restricted_root_denied():
+    """ssh root@ on restricted host should be denied."""
+    assert allow_ssh.check_command(
+        'ssh root@restricted.example.com ls', TEST_CONFIG
+    ) is False
+
+
+def test_check_command_workstation_root_sudo():
+    """ssh root@ sudo on host with permit-root-access should be allowed."""
+    assert allow_ssh.check_command(
+        'ssh root@workstation.local sudo reboot', TEST_CONFIG
     ) is True
 
 
