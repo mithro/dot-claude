@@ -223,6 +223,20 @@ def test_check_command_ssh_sudo_denied():
     ) is False
 
 
+def test_check_command_ssh_sudo_in_wrapper():
+    """sudo inside sh -c should still be detected."""
+    assert allow_ssh.check_command(
+        "ssh tim@restricted.example.com sh -c 'sudo reboot'", TEST_CONFIG
+    ) is False
+
+
+def test_check_command_ssh_sudo_in_wrapper_allowed():
+    """sudo inside sh -c on host with permit-root-access."""
+    assert allow_ssh.check_command(
+        "ssh tim@server.example.com sh -c 'sudo reboot'", TEST_CONFIG
+    ) is True
+
+
 def test_check_command_ssh_wrong_user():
     """ssh with wrong user."""
     assert allow_ssh.check_command(
