@@ -345,11 +345,9 @@ def check_command(command, config):
             return False
 
         # Check if this command requires root-level access:
-        # either logging in as root, or running sudo remotely.
-        # Note: this is a best-effort heuristic — it catches the common
-        # case (ssh host sudo cmd) but can't detect sudo inside shell
-        # wrappers like sh -c 'sudo ...'.
-        uses_sudo = list(remote_cmd) != strip_privilege_prefixes(list(remote_cmd))
+        # either logging in as root, or sudo anywhere in the remote command.
+        remote_str = ' '.join(remote_cmd)
+        uses_sudo = bool(re.search(r'\bsudo\b', remote_str))
         needs_root = user == 'root' or uses_sudo
         if needs_root and not entry.get('permit-root-access', False):
             return False
