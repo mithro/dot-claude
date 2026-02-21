@@ -334,21 +334,56 @@ def test_check_command_ssh_keyscan():
 
 
 def test_check_command_piped():
-    """ssh piped with local command."""
+    """ssh piped with local filter — should be allowed."""
     assert allow_ssh.check_command(
         'ssh tim@server.example.com cat /etc/hostname | grep server', TEST_CONFIG
     ) is True
 
 
-def test_check_command_chained():
-    """ssh chained with &&."""
+def test_check_command_chained_and():
+    """Compound && commands must NOT be auto-allowed."""
     assert allow_ssh.check_command(
         'ssh tim@server.example.com uptime && echo done', TEST_CONFIG
+    ) is False
+
+
+def test_check_command_chained_semicolon():
+    """Compound ; commands must NOT be auto-allowed."""
+    assert allow_ssh.check_command(
+        'ssh tim@server.example.com uptime; rm -rf ~', TEST_CONFIG
+    ) is False
+
+
+def test_check_command_chained_or():
+    """Compound || commands must NOT be auto-allowed."""
+    assert allow_ssh.check_command(
+        'ssh tim@server.example.com ls || echo failed', TEST_CONFIG
+    ) is False
+
+
+def test_check_command_subshell():
+    """Command substitution $() must NOT be auto-allowed."""
+    assert allow_ssh.check_command(
+        'ssh tim@server.example.com $(cat /etc/hostname)', TEST_CONFIG
+    ) is False
+
+
+def test_check_command_backtick():
+    """Backtick command substitution must NOT be auto-allowed."""
+    assert allow_ssh.check_command(
+        'ssh tim@server.example.com `cat /etc/hostname`', TEST_CONFIG
+    ) is False
+
+
+def test_check_command_operators_in_quotes():
+    """Shell operators inside quotes are part of the remote command, not compound."""
+    assert allow_ssh.check_command(
+        "ssh tim@server.example.com 'ls && uptime'", TEST_CONFIG
     ) is True
 
 
 def test_check_command_chained_mixed_hosts():
-    """ssh to allowed host && ssh to unknown host."""
+    """Compound ssh commands must NOT be auto-allowed."""
     assert allow_ssh.check_command(
         'ssh tim@server.example.com ls && ssh tim@unknown.host.com ls',
         TEST_CONFIG,

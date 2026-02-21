@@ -229,15 +229,42 @@ def is_tmp_path(path):
     )
 
 
-def extract_first_command(command):
-    """Extract individual commands from a shell command string.
+def has_shell_operators(command):
+    """Check if command contains shell operators that chain multiple commands.
 
-    Splits on shell operators (&&, ||, |, ;) and returns all simple
-    commands. Also handles $() and backtick subshells by splitting on them.
+    Returns True if the command contains &&, ||, ;, backticks, or $()
+    which would cause additional commands to execute alongside an SSH
+    command. Pipes (|) are allowed since they just pipe SSH output to
+    a local filter and don't execute independent commands.
     """
-    # Split on shell operators
-    parts = re.split(r'&&|\|\||[|;]|`|\$\(', command)
-    return [p.strip() for p in parts if p.strip()]
+    # Ignore operators inside quotes by using shlex to tokenize
+    # and checking the raw command for unquoted operators.
+    # Simple approach: look for operators outside of single/double quotes.
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == '\\' and in_double:
+            i += 1  # skip escaped char
+        elif not in_single and not in_double:
+            # Check for shell operators
+            if ch == ';':
+                return True
+            if ch == '`':
+                return True
+            if ch == '&' and i + 1 < len(command) and command[i + 1] == '&':
+                return True
+            if ch == '|' and i + 1 < len(command) and command[i + 1] == '|':
+                return True
+            if ch == '$' and i + 1 < len(command) and command[i + 1] == '(':
+                return True
+        i += 1
+    return False
 
 
 def strip_privilege_prefixes(tokens):
@@ -270,85 +297,82 @@ def strip_privilege_prefixes(tokens):
 
 
 def check_command(command, config):
-    """Check a single bash command against the allowed hosts config.
+    """Check a bash command against the allowed hosts config.
 
     Returns True if the command should be auto-allowed, False otherwise.
-    """
-    # Split into simple commands and check each
-    simple_commands = extract_first_command(command)
 
-    for simple_cmd in simple_commands:
-        try:
-            tokens = shlex.split(simple_cmd)
-        except ValueError:
-            # Malformed shell quoting — don't auto-allow
+    Only auto-allows single ssh/scp/rsync invocations. Commands with
+    shell operators (&&, ||, ;, $(), backticks) are never auto-allowed
+    because they could execute arbitrary commands alongside the SSH.
+    Pipes (|) are allowed since they just filter SSH output locally.
+    """
+    if not command:
+        return False
+
+    # Don't auto-allow compound commands — they could sneak in
+    # arbitrary commands alongside a valid SSH invocation.
+    if has_shell_operators(command):
+        return False
+
+    # Handle pipes: split on | and check the first segment is SSH.
+    # The pipe destination is a local filter (grep, awk, etc.) — safe.
+    segments = command.split('|')
+    ssh_segment = segments[0].strip()
+
+    try:
+        tokens = shlex.split(ssh_segment)
+    except ValueError:
+        return False
+
+    if not tokens:
+        return False
+
+    tokens = strip_privilege_prefixes(tokens)
+    if not tokens:
+        return False
+
+    cmd = tokens[0]
+    args = tokens[1:]
+
+    if cmd == 'ssh':
+        result = parse_ssh_command(args)
+        if result is None:
             return False
 
-        if not tokens:
-            continue
+        user, host, remote_cmd = result
+        entry = find_allowed_host(config, host, user)
+        if entry is None:
+            return False
 
-        tokens = strip_privilege_prefixes(tokens)
-        if not tokens:
-            continue
+        # Check if this command requires root-level access:
+        # either logging in as root, or running sudo remotely.
+        # Note: this is a best-effort heuristic — it catches the common
+        # case (ssh host sudo cmd) but can't detect sudo inside shell
+        # wrappers like sh -c 'sudo ...'.
+        uses_sudo = list(remote_cmd) != strip_privilege_prefixes(list(remote_cmd))
+        needs_root = user == 'root' or uses_sudo
+        if needs_root and not entry.get('permit-root-access', False):
+            return False
 
-        cmd = tokens[0]
-        args = tokens[1:]
+        return True
 
-        if cmd == 'ssh':
-            result = parse_ssh_command(args)
-            if result is None:
-                continue
+    elif cmd in ('scp', 'rsync'):
+        targets = parse_scp_rsync_targets(args)
+        if not targets:
+            return False
 
-            user, host, remote_cmd = result
+        for user, host, path in targets:
             entry = find_allowed_host(config, host, user)
             if entry is None:
-                # Host not in config — don't auto-allow
+                return False
+            if user == 'root' and not entry.get('permit-root-access', False):
+                return False
+            if not is_tmp_path(path):
                 return False
 
-            # Check if this command requires root-level access:
-            # either logging in as root, or running sudo remotely.
-            uses_sudo = list(remote_cmd) != strip_privilege_prefixes(list(remote_cmd))
-            needs_root = user == 'root' or uses_sudo
-            if needs_root and not entry.get('permit-root-access', False):
-                return False
+        return True
 
-        elif cmd in ('scp', 'rsync'):
-            targets = parse_scp_rsync_targets(args)
-            if not targets:
-                # No remote targets found — not an SSH operation
-                continue
-
-            for user, host, path in targets:
-                entry = find_allowed_host(config, host, user)
-                if entry is None:
-                    return False
-                if user == 'root' and not entry.get('permit-root-access', False):
-                    return False
-                if not is_tmp_path(path):
-                    return False
-
-        else:
-            # Not an ssh/scp/rsync command — don't auto-allow the whole thing
-            # But also don't block — it might be piped with an ssh command.
-            # We only auto-allow if ALL ssh/scp/rsync parts are allowed.
-            continue
-
-    # Only auto-allow if we found at least one ssh/scp/rsync command
-    # and none of them were disallowed
-    has_ssh_cmd = False
-    for simple_cmd in simple_commands:
-        try:
-            tokens = shlex.split(simple_cmd)
-        except ValueError:
-            return False
-        if not tokens:
-            continue
-        tokens = strip_privilege_prefixes(tokens)
-        if tokens and tokens[0] in ('ssh', 'scp', 'rsync'):
-            has_ssh_cmd = True
-            break
-
-    return has_ssh_cmd
+    return False
 
 
 def make_allow():
