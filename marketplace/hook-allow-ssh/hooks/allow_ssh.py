@@ -10,18 +10,17 @@ Config format (~/.claude/ssh-allowed-hosts.json):
   {
     "host": "server.example.com",
     "user": "tim",
-    "sudo": true,
-    "permit-root-access": false
+    "permit-root-access": true
   }
 ]
 
 Fields:
   - host (required): hostname or IP
   - user (optional): if specified, only allow SSH as this user
-  - sudo (optional, default false): whether to auto-allow sudo commands
   - permit-root-access (optional, default false): whether to auto-allow
-    SSH as root. Logging in as root is equivalent to sudo — both give
-    full root access — so this is gated separately.
+    root-level access. This gates both logging in as root (ssh root@host)
+    and running sudo on the remote host (ssh user@host sudo cmd), since
+    both give full root access.
 
 Auto-allows:
   - ssh [flags] [user@]host command
@@ -306,16 +305,11 @@ def check_command(command, config):
                 # Host not in config — don't auto-allow
                 return False
 
-            # Root login is equivalent to sudo — both give full root access.
-            # Require explicit permit-root-access: true to auto-allow.
-            if user == 'root' and not entry.get('permit-root-access', False):
-                return False
-
-            # Check if remote command uses sudo
-            remote_stripped = strip_privilege_prefixes(list(remote_cmd))
-            # The original remote_cmd had sudo if stripping changed it
-            uses_sudo = (list(remote_cmd) != remote_stripped)
-            if uses_sudo and not entry.get('sudo', False):
+            # Check if this command requires root-level access:
+            # either logging in as root, or running sudo remotely.
+            uses_sudo = list(remote_cmd) != strip_privilege_prefixes(list(remote_cmd))
+            needs_root = user == 'root' or uses_sudo
+            if needs_root and not entry.get('permit-root-access', False):
                 return False
 
         elif cmd in ('scp', 'rsync'):
