@@ -10,7 +10,8 @@ Config format (~/.claude/ssh-allowed-hosts.json):
   {
     "host": "server.example.com",
     "user": "tim",
-    "sudo": true
+    "sudo": true,
+    "permit-root-access": false
   }
 ]
 
@@ -18,6 +19,9 @@ Fields:
   - host (required): hostname or IP
   - user (optional): if specified, only allow SSH as this user
   - sudo (optional, default false): whether to auto-allow sudo commands
+  - permit-root-access (optional, default false): whether to auto-allow
+    SSH as root. Logging in as root is equivalent to sudo — both give
+    full root access — so this is gated separately.
 
 Auto-allows:
   - ssh [flags] [user@]host command
@@ -302,6 +306,11 @@ def check_command(command, config):
                 # Host not in config — don't auto-allow
                 return False
 
+            # Root login is equivalent to sudo — both give full root access.
+            # Require explicit permit-root-access: true to auto-allow.
+            if user == 'root' and not entry.get('permit-root-access', False):
+                return False
+
             # Check if remote command uses sudo
             remote_stripped = strip_privilege_prefixes(list(remote_cmd))
             # The original remote_cmd had sudo if stripping changed it
@@ -318,6 +327,8 @@ def check_command(command, config):
             for user, host, path in targets:
                 entry = find_allowed_host(config, host, user)
                 if entry is None:
+                    return False
+                if user == 'root' and not entry.get('permit-root-access', False):
                     return False
                 if not is_tmp_path(path):
                     return False
