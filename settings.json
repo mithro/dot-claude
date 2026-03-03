@@ -8,7 +8,8 @@
       "Bash(git safe-force-push:*)",
       "Bash(git safe-force-push-lease:*)",
       "Bash(bash -n:*)",
-      "Bash(~/bin/verify-install:*)"
+      "Bash(~/bin/verify-install:*)",
+      "WebSearch"
     ],
     "deny": [
       "Bash(git push --force:*)",
