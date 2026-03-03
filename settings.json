@@ -19,30 +19,7 @@
     "ask": [],
     "defaultMode": "default"
   },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 /home/tim/github/mithro/dot-claude/scripts/block_stderr_to_null.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 /home/tim/github/mithro/dot-claude/scripts/block_tmp_creation.py",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  },
+  "hooks": {},
   "statusLine": {
     "type": "command",
     "command": "printf '${debian_chroot:+($debian_chroot)}\\033[01;32m%s@%s\\033[00m:\\033[01;34m%s\\033[00m' \"$(whoami)\" \"$(hostname -s)\" \"$(pwd)\""
@@ -79,6 +56,14 @@
     "claude-code-setup@claude-plugins-official": true,
     "superpowers-chrome@superpowers-marketplace": false,
     "context-mode@claude-context-mode": true
+  },
+  "extraKnownMarketplaces": {
+    "mithro-personal": {
+      "source": {
+        "source": "github",
+        "repo": "mithro/dot-claude"
+      }
+    }
   },
   "alwaysThinkingEnabled": true,
   "skipDangerousModePermissionPrompt": true
