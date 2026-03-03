@@ -80,5 +80,6 @@
     "superpowers-chrome@superpowers-marketplace": false,
     "context-mode@claude-context-mode": true
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "skipDangerousModePermissionPrompt": true
 }
