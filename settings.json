@@ -77,8 +77,7 @@
     "frontend-design@claude-plugins-official": false,
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
-    "superpowers-chrome@superpowers-marketplace": false,
-    "superpowers-lab@superpowers-marketplace": true
+    "superpowers-chrome@superpowers-marketplace": false
   },
   "alwaysThinkingEnabled": true
 }
