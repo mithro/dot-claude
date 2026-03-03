@@ -20,35 +20,7 @@
     "defaultMode": "default"
   },
   "hooks": {
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -66,26 +38,6 @@
             "type": "command",
             "command": "python3 /home/tim/github/mithro/dot-claude/scripts/block_tmp_creation.py",
             "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/tim/github/mithro/claude-notify-gnome/notify_hook.py"
           }
         ]
       }
