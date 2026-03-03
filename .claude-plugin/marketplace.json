@@ -41,6 +41,20 @@
       "category": "agents"
     },
     {
+      "name": "agent-cpp-pro",
+      "description": "Expert C++ developer specializing in modern C++20/23, systems programming, and high-performance computing. Masters template metaprogramming, zero-overhead abstractions, and low-level optimization ...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-cpp-pro",
+      "category": "agents"
+    },
+    {
+      "name": "agent-csharp-developer",
+      "description": "Expert C# developer specializing in modern .NET development, ASP.NET Core, and cloud-native applications. Masters C# 12 features, Blazor, and cross-platform development with emphasis on performan...",
+      "version": "1.0.0",
+      "source": "./marketplace/agent-csharp-developer",
+      "category": "agents"
+    },
+    {
       "name": "agent-data-scientist",
       "description": "Data analysis and insights specialist for Django applications. Expert in SQL query optimization, Django ORM aggregations, data visualization strategies, statistical analysis, Pandas integration, re...",
       "version": "1.0.0",
