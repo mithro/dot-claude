@@ -72,7 +72,6 @@
     "rust-analyzer-lsp@claude-plugins-official": false,
     "clangd-lsp@claude-plugins-official": false,
     "huggingface-skills@claude-plugins-official": false,
-    "double-shot-latte@superpowers-marketplace": false,
     "elements-of-style@superpowers-marketplace": false,
     "episodic-memory@superpowers-marketplace": true,
     "superpowers@claude-plugins-official": true,
