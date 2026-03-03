@@ -15,6 +15,7 @@ idle-timer.json
 *.pem
 
 # Claude Code internal files
+backups/
 .claude/
 projects/
 todos/
