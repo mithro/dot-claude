@@ -6,7 +6,8 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git safe-force-push:*)",
-      "Bash(git safe-force-push-lease:*)"
+      "Bash(git safe-force-push-lease:*)",
+      "Bash(bash -n:*)"
     ],
     "deny": [
       "Bash(git push --force:*)",
