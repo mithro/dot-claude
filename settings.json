@@ -55,7 +55,13 @@
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "superpowers-chrome@superpowers-marketplace": false,
-    "context-mode@claude-context-mode": true
+    "context-mode@claude-context-mode": true,
+    "hook-block-tmp-creation@mithro-personal": true,
+    "hook-block-stderr-to-null@mithro-personal": true,
+    "hook-safe-force-push@mithro-personal": true,
+    "hook-block-ssh-hash-hostnames@mithro-personal": true,
+    "hook-block-ssh-unsafe-options@mithro-personal": true,
+    "hook-block-inline-scripts@mithro-personal": true
   },
   "extraKnownMarketplaces": {
     "mithro-personal": {
