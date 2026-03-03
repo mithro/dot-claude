@@ -1,0 +1,8 @@
+{
+  "name": "agent-security-auditor",
+  "description": "Security vulnerability assessment specialist focusing on OWASP Top 10, Django security best practices, dependency scanning, and comprehensive security code review. Expert in authentication, authorization, input validation, and secure configuration. Use PROACTIVELY for security audits and before production deployments.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

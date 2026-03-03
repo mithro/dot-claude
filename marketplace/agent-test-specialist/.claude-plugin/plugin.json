@@ -1,0 +1,8 @@
+{
+  "name": "agent-test-specialist",
+  "description": "Testing expert for Django/pytest with browser testing. Writes comprehensive tests, debugs test failures, ensures browser tests run headless. Enforces CLAUDECODE headless browser requirements. Use PROACTIVELY for testing tasks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

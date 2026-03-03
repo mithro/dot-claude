@@ -1,0 +1,6 @@
+{
+  "name": "my-conventions",
+  "description": "Personal coding conventions — Python/uv preferences, date formats, commit style, and safety rules",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}

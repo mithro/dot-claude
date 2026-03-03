@@ -1,0 +1,8 @@
+{
+  "name": "agent-data-scientist",
+  "description": "Data analysis and insights specialist for Django applications. Expert in SQL query optimization, Django ORM aggregations, data visualization strategies, statistical analysis, Pandas integration, report generation, business metrics/KPIs, and A/B testing analysis. Use PROACTIVELY for data analysis and reporting tasks.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

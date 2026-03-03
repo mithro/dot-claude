@@ -1,0 +1,8 @@
+{
+  "name": "agent-debugger",
+  "description": "Expert debugger for complex issue diagnosis, root cause analysis, systematic debugging, and problem solving. Specializes in Django debugging, async issues, database problems, performance bottlenecks, and production debugging. Use PROACTIVELY for investigating bugs and errors.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}
