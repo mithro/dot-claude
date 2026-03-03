@@ -1,0 +1,8 @@
+{
+  "name": "agent-error-detective",
+  "description": "Error analysis and resolution specialist focusing on error pattern recognition, stack trace analysis, root cause analysis methodologies, error tracking integration (Sentry), Django error handling best practices, custom error pages, error aggregation, and prevention strategies. Use PROACTIVELY for debugging production errors and establishing error monitoring.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

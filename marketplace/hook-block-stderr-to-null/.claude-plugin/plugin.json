@@ -1,0 +1,6 @@
+{
+  "name": "hook-block-stderr-to-null",
+  "description": "Blocks commands that redirect stderr to /dev/null — stderr contains valuable diagnostic information",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}

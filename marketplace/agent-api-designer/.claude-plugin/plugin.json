@@ -1,0 +1,8 @@
+{
+  "name": "agent-api-designer",
+  "description": "API architecture expert for REST API design, documentation, consistency, versioning, and best practices. Specializes in Django REST Framework, OpenAPI/Swagger, API security, performance optimization, and developer experience. Use PROACTIVELY for API design and implementation.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Tim Ansell"
+  }
+}

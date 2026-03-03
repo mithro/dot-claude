@@ -1,0 +1,6 @@
+{
+  "name": "github-repo-setup",
+  "description": "GitHub repository configuration — standard settings, branch protection, tag rulesets, and security setup",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}
