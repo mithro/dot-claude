@@ -45,12 +45,13 @@ Specialized agents for various development tasks:
 | `agent-sre-engineer` | Monitoring, observability, incident response, SLOs |
 | `agent-test-specialist` | Django/pytest, browser testing, test coverage |
 
-### Hooks (6)
+### Hooks (7)
 
-Enforcement hooks that deny dangerous operations:
+Enforcement hooks for SSH, git, and command safety:
 
 | Plugin | Description |
 |--------|-------------|
+| `hook-allow-ssh` | Auto-allows SSH/scp/rsync to configured hosts (eliminates permission prompts) |
 | `hook-block-tmp-creation` | Blocks file creation in `/tmp/` (use project-local `tmp/`) |
 | `hook-block-stderr-to-null` | Blocks `2>/dev/null` (keep diagnostic output visible) |
 | `hook-block-ssh-hash-hostnames` | Blocks SSH `-H` flag and `HashKnownHosts` (keep known_hosts readable) |
@@ -70,10 +71,10 @@ Enforcement hooks that deny dangerous operations:
 ```
 dot-claude/
 ├── .claude-plugin/
-│   └── marketplace.json          # Marketplace catalog (27 plugins)
+│   └── marketplace.json          # Marketplace catalog (28 plugins)
 ├── marketplace/
 │   ├── agent-*/                  # 19 agent plugins
-│   ├── hook-*/                   # 6 hook enforcement plugins
+│   ├── hook-*/                   # 7 hook plugins
 │   ├── my-conventions/           # Coding conventions (SessionStart hook)
 │   └── github-repo-setup/       # GitHub config skill + scripts
 ├── settings.json                 # Repo-level permissions
