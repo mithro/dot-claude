@@ -209,6 +209,13 @@
       "category": "security"
     },
     {
+      "name": "hook-block-gitconfig-safe-directory",
+      "description": "Blocks adding [safe]/safe.directory entries to any gitconfig \u2014 fix file ownership instead",
+      "version": "1.0.0",
+      "source": "./marketplace/hook-block-gitconfig-safe-directory",
+      "category": "security"
+    },
+    {
       "name": "my-conventions",
       "description": "Personal coding conventions \u2014 Python/uv preferences, date formats, commit style, and safety rules",
       "version": "1.0.0",
