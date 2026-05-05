@@ -62,6 +62,7 @@
     "hook-block-ssh-hash-hostnames@mithro-personal": true,
     "hook-block-ssh-unsafe-options@mithro-personal": true,
     "hook-block-inline-scripts@mithro-personal": true,
+    "hook-block-gitconfig-safe-directory@mithro-personal": true,
     "my-conventions@mithro-personal": true,
     "github-repo-setup@mithro-personal": true
   },
