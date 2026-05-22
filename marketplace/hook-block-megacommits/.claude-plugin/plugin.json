@@ -1,0 +1,6 @@
+{
+  "name": "hook-block-megacommits",
+  "description": "Blocks oversized git commits (too many files/lines) — encourages small, logical commits; override with ALLOW_MEGACOMMIT=1",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}
