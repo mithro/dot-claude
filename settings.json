@@ -17,7 +17,7 @@
       "Bash(git push -f:*)"
     ],
     "ask": [],
-    "defaultMode": "default"
+    "defaultMode": "auto"
   },
   "hooks": {},
   "statusLine": {
@@ -42,7 +42,7 @@
     "pyright-lsp@claude-plugins-official": true,
     "explanatory-output-style@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": false,
-    "hookify@claude-plugins-official": true,
+    "hookify@claude-plugins-official": false,
     "learning-output-style@claude-plugins-official": true,
     "gopls-lsp@claude-plugins-official": false,
     "csharp-lsp@claude-plugins-official": false,
@@ -55,7 +55,7 @@
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "superpowers-chrome@superpowers-marketplace": false,
-    "context-mode@claude-context-mode": true,
+    "context-mode@claude-context-mode": false,
     "hook-block-tmp-creation@mithro-personal": true,
     "hook-block-stderr-to-null@mithro-personal": true,
     "hook-safe-force-push@mithro-personal": true,
@@ -63,6 +63,7 @@
     "hook-block-ssh-unsafe-options@mithro-personal": true,
     "hook-block-inline-scripts@mithro-personal": true,
     "hook-block-gitconfig-safe-directory@mithro-personal": true,
+    "hook-block-megacommits@mithro-personal": true,
     "my-conventions@mithro-personal": true,
     "github-repo-setup@mithro-personal": true
   },
@@ -75,5 +76,11 @@
     }
   },
   "alwaysThinkingEnabled": true,
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "skipAutoPermissionPrompt": true,
+  "verbose": true,
+  "preferredNotifChannel": "kitty",
+  "fileCheckpointingEnabled": false,
+  "terminalProgressBarEnabled": false,
+  "agentPushNotifEnabled": false
 }
