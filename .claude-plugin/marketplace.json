@@ -216,6 +216,13 @@
       "category": "security"
     },
     {
+      "name": "hook-block-megacommits",
+      "description": "Blocks oversized git commits (too many files/lines) \u2014 encourages small, logical commits; override with ALLOW_MEGACOMMIT=1",
+      "version": "1.0.0",
+      "source": "./marketplace/hook-block-megacommits",
+      "category": "security"
+    },
+    {
       "name": "my-conventions",
       "description": "Personal coding conventions \u2014 Python/uv preferences, date formats, commit style, and safety rules",
       "version": "1.0.0",
