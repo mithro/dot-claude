@@ -8,7 +8,138 @@ hostnames, not hashed versions.
 
 import json
 import re
+import shlex
 import sys
+
+
+def extract_ssh_own_args(rest: str) -> str:
+    """For 'ssh [options] hostname [command]', extract only the [options] part.
+
+    Returns a string containing only ssh's own options (before the hostname),
+    so we can check for -H without matching flags in the remote command
+    (e.g. curl -H for HTTP headers).
+
+    For parse failures (e.g. unmatched quotes from command splitting),
+    returns the full string as a safe fallback — may give false positives
+    but won't miss real -H usage.
+    """
+    try:
+        tokens = shlex.split(rest)
+    except ValueError:
+        # shlex can't parse (e.g. unmatched quote) — fall back to full string
+        return rest
+
+    # SSH options that require a following argument value
+    opts_with_args = set('bcDEeFIiJLlmOopQRSWw')
+
+    option_parts = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == '--':
+            # Explicit end of options
+            break
+        if token.startswith('-') and len(token) > 1:
+            option_parts.append(token)
+            # In combined flags like -vi, the last char determines
+            # whether the next token is consumed as an argument
+            flag_chars = token[1:]
+            if flag_chars and flag_chars[-1] in opts_with_args:
+                # Next token is the option's argument value
+                if i + 1 < len(tokens):
+                    option_parts.append(tokens[i + 1])
+                    i += 2
+                else:
+                    i += 1
+            else:
+                i += 1
+        else:
+            # First non-option token is the hostname — stop here.
+            # Everything after is the remote command.
+            break
+
+    return ' '.join(option_parts)
+
+
+def split_shell_commands(command: str) -> list[str]:
+    """Split a command string on shell operators, respecting quotes.
+
+    Splits on: && || | ; ` $(
+    Does NOT split when these operators appear inside single or double quotes.
+    """
+    parts = []
+    current: list[str] = []
+    in_single_quote = False
+    in_double_quote = False
+    i = 0
+    n = len(command)
+
+    while i < n:
+        c = command[i]
+
+        if in_single_quote:
+            # Inside single quotes, everything is literal except closing '
+            current.append(c)
+            if c == "'":
+                in_single_quote = False
+            i += 1
+        elif in_double_quote:
+            # Inside double quotes, backslash can escape certain chars
+            if c == '\\' and i + 1 < n:
+                current.append(c)
+                current.append(command[i + 1])
+                i += 2
+            elif c == '"':
+                current.append(c)
+                in_double_quote = False
+                i += 1
+            else:
+                current.append(c)
+                i += 1
+        else:
+            # Outside quotes — check for quote starts and operators
+            if c == "'":
+                in_single_quote = True
+                current.append(c)
+                i += 1
+            elif c == '"':
+                in_double_quote = True
+                current.append(c)
+                i += 1
+            elif c == '\\' and i + 1 < n:
+                current.append(c)
+                current.append(command[i + 1])
+                i += 2
+            elif command[i:i+2] == '&&':
+                parts.append(''.join(current))
+                current = []
+                i += 2
+            elif command[i:i+2] == '||':
+                parts.append(''.join(current))
+                current = []
+                i += 2
+            elif command[i:i+2] == '$(':
+                parts.append(''.join(current))
+                current = []
+                i += 2
+            elif c == '|':
+                parts.append(''.join(current))
+                current = []
+                i += 1
+            elif c == ';':
+                parts.append(''.join(current))
+                current = []
+                i += 1
+            elif c == '`':
+                parts.append(''.join(current))
+                current = []
+                i += 1
+            else:
+                current.append(c)
+                i += 1
+
+    parts.append(''.join(current))
+    return parts
 
 
 def check_bash_command(command: str) -> str | None:
@@ -16,10 +147,9 @@ def check_bash_command(command: str) -> str | None:
 
     Returns a reason string if blocked, None if allowed.
     """
-    # Split on common shell operators to find individual commands
-    # This handles: cmd1 && cmd2, cmd1 || cmd2, cmd1 | cmd2, cmd1; cmd2
-    # Also handles $() and backtick subshells (imperfectly, but good enough)
-    simple_commands = re.split(r'&&|\|\||\||;|`|\$\(', command)
+    # Split on shell operators respecting quotes, so operators inside
+    # quoted strings (e.g. ssh host 'cmd1 | cmd2') are not treated as pipes
+    simple_commands = split_shell_commands(command)
 
     for simple_cmd in simple_commands:
         simple_cmd = simple_cmd.strip()
@@ -39,20 +169,28 @@ def check_bash_command(command: str) -> str | None:
 
         tool_name = cmd_match.group(1)
 
-        # Now check for -H flag in this specific command's arguments
         # Parse the rest of the command after the tool name
         rest = simple_cmd[cmd_match.end():]
 
+        # For 'ssh', only check flags before the hostname — everything
+        # after the hostname is the remote command, where -H could belong
+        # to another tool (e.g. curl -H for HTTP headers).
+        # For ssh-keyscan/ssh-keygen/etc., check all arguments.
+        if tool_name == 'ssh':
+            args_to_check = extract_ssh_own_args(rest)
+        else:
+            args_to_check = rest
+
         # Look for -H as a standalone flag or combined with other short flags
         # Examples: -H, -tH, -Ht, -tHr
-        if re.search(r'(?:^|\s)-[a-zA-Z]*H[a-zA-Z]*\b', rest):
+        if re.search(r'(?:^|\s)-[a-zA-Z]*H[a-zA-Z]*\b', args_to_check):
             return (
                 f"BLOCKED: '{tool_name}' with -H flag hashes hostnames.\n"
                 f"Remove the -H flag to keep proper hostnames."
             )
 
         # Also check for HashKnownHosts in -o options
-        if re.search(r'HashKnownHosts', rest):
+        if re.search(r'HashKnownHosts', args_to_check):
             return (
                 f"BLOCKED: '{tool_name}' with HashKnownHosts option hashes hostnames.\n"
                 f"Use -o HashKnownHosts=no or omit the option entirely."
