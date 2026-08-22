@@ -1,0 +1,6 @@
+{
+  "name": "netgear-switch",
+  "description": "Netgear switch fleet access — the shared, socket-activated ngsw-mcp MCP server (python-netgear-switch-library) plus the netgear-switches skill with fleet facts and safety rules",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}
