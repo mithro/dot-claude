@@ -42,7 +42,7 @@
     "pyright-lsp@claude-plugins-official": true,
     "explanatory-output-style@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": false,
-    "hookify@claude-plugins-official": false,
+    "hookify@claude-plugins-official": true,
     "learning-output-style@claude-plugins-official": true,
     "gopls-lsp@claude-plugins-official": false,
     "csharp-lsp@claude-plugins-official": false,
@@ -51,7 +51,7 @@
     "huggingface-skills@claude-plugins-official": false,
     "elements-of-style@superpowers-marketplace": false,
     "superpowers@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": false,
+    "frontend-design@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "superpowers-chrome@superpowers-marketplace": false,
@@ -65,13 +65,23 @@
     "hook-block-gitconfig-safe-directory@mithro-personal": true,
     "hook-block-megacommits@mithro-personal": true,
     "my-conventions@mithro-personal": true,
-    "github-repo-setup@mithro-personal": true
+    "github-repo-setup@mithro-personal": true,
+    "double-shot-latte@superpowers-marketplace": false,
+    "episodic-memory@superpowers-marketplace": true,
+    "superpowers-developing-for-claude-code@superpowers-marketplace": true,
+    "superpowers-lab@superpowers-marketplace": true
   },
   "extraKnownMarketplaces": {
     "mithro-personal": {
       "source": {
         "source": "github",
         "repo": "mithro/dot-claude"
+      }
+    },
+    "claude-code-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-code"
       }
     }
   },
@@ -82,5 +92,37 @@
   "preferredNotifChannel": "kitty",
   "fileCheckpointingEnabled": false,
   "terminalProgressBarEnabled": false,
-  "agentPushNotifEnabled": false
+  "agentPushNotifEnabled": false,
+  "model": "opus[1m]",
+  "effortLevel": "high",
+  "tui": "fullscreen",
+  "theme": "auto",
+  "editorMode": "normal",
+  "cleanupPeriodDays": 1095,
+  "crossSessionInbound": "accept",
+  "inputNeededNotifEnabled": true,
+  "autoMode": {
+    "environment": [
+      "### Org-wide",
+      "**Organization**: None configured",
+      "**Cloud provider(s)**: None configured",
+      "**Internal sharing / snippet hosting**: None configured \u2014 treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: None configured",
+      "**Default / protected branches**: main; no rulesets or protected branches configured",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment (hyphen/underscore/dot-delimited)",
+      "**Protected deployment namespaces / environments**: None configured \u2014 fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development (hobby/personal projects, e.g. hardware/firmware tooling such as flashrom, lsusb)",
+      "**Org-specific CLIs**: None configured"
+    ]
+  }
 }
