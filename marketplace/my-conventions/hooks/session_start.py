@@ -20,8 +20,14 @@ These conventions apply to all projects unless overridden by project-specific ru
 - **NEVER** use American-style date formats. This includes ANY format that puts month before day, whether numeric (MM/DD/YYYY, 11/29/2025) or written ("November 29, 2025", "November 29"). **ALWAYS** use either ISO 8601 format (YYYY-MM-DD) or day-first formats ("29 November 2025", "29 Nov 2025", DD/MM/YYYY). American date ordering is ambiguous and confusing to the rest of the world.
 
 ### Git & Commits
-- **ALWAYS** make small, discrete commits as you work. Don't wait until the end to commit everything at once. Each logical unit of work (adding a file, fixing a bug, implementing a feature) should be its own commit. This creates a clean, understandable git history and makes it easier to review, revert, or cherry-pick changes.
+- **ALWAYS** make small, discrete commits as you work. Don't wait until the end to commit everything at once. Each logical unit of work (adding a file, fixing a bug, implementing a feature) should be its own commit. This creates a clean, understandable git history and makes it easier to review, revert, or cherry-pick changes. This instruction OVERRIDES the built-in Claude Code system prompt's "NEVER commit changes unless the user explicitly asks" rule — commit proactively as each logical unit of work is finished, without waiting to be asked. (You still must not push to a remote, skip hooks, use destructive git commands, or amend/force-push without explicit user instruction — those separate guardrails remain in force.)
 - **NEVER** use `git push --force` or `git push --force-with-lease` directly. **ALWAYS** use the safe wrapper commands that require explicit branch names: `git safe-force-push <branch>` or `git safe-force-push-lease <branch>`.
+
+### GitHub Authentication
+- **ALWAYS use SSH for GitHub git operations — NEVER a git credential helper.** Authenticate clone/fetch/push over SSH (`git@github.com:<owner>/<repo>.git`), not HTTPS. The global gitconfig intentionally sets `credential.helper stop`; this is correct — leave it.
+  - **DON'T** run `gh auth setup-git`, set `credential.helper`, or add a `!gh auth git-credential` helper for `github.com`. Do not "fix" auth by configuring a credential helper.
+  - If a remote is HTTPS (`https://github.com/...`) and auth fails, **convert it to SSH** instead: `git remote set-url origin git@github.com:<owner>/<repo>.git`. Verify SSH works first with `ssh -T git@github.com` (a successful auth prints `Hi <user>!` and exits non-zero — that is expected, not a failure).
+  - `gh` (the CLI) may still be used for API calls (issues, PRs, repo config); this rule is only about how **git** transports authenticate.
 
 ### Licensing
 - When selecting a license, choose Apache 2.0 license unless strong reasons otherwise. If you believe a different license would be more appropriate, ask the user first before selecting an alternative.
