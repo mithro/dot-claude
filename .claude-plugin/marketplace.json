@@ -232,7 +232,7 @@
     {
       "name": "netgear-switch",
       "description": "Netgear switch fleet access \u2014 shared socket-activated ngsw-mcp MCP server (python-netgear-switch-library) + the netgear-switches skill with fleet facts and write-safety rules",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "./marketplace/netgear-switch",
       "category": "productivity"
     }

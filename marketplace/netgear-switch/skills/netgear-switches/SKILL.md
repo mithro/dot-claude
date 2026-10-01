@@ -16,10 +16,17 @@ The `netgear` MCP server (tools `list_switches`, `get_ports`, `get_vlans`,
 ## How the server runs (ten64-welland, as `tim`)
 
 - **One shared process for every Claude session**, socket-activated:
-  `ngsw-mcp.socket` listens on `127.0.0.1:8765`; the first connection starts
+  `ngsw-mcp.socket` listens on `127.0.0.1:26273`; the first connection starts
   `ngsw-mcp-proxy.service` → `ngsw-mcp.service` (`ngsw-mcp --transport
-  streamable-http` on `:8766`). After 15 min idle the proxy exits and
-  `StopWhenUnneeded=` stops the server. Nothing runs when nobody is using it.
+  streamable-http` on `:26373`). After 15 min with no open connection the
+  proxy exits and `StopWhenUnneeded=` stops the server -- but every open
+  Claude session holds a standalone MCP GET (SSE) stream, so in practice it
+  stays up while any session is open.
+- Port plan (same on every host): MCP front doors are `2627x` (M-C-P = 6-2-7
+  on a phone keypad), backends `+100`: playwright 26271/26371,
+  playwright-stealth 26272/26372, netgear 26273/26373. Below the Linux
+  ephemeral range (32768+) and clear of the 3000/5000/8000/9000 dev-server
+  habits.
 - Units: `~/.config/systemd/user/ngsw-mcp.{socket,service}`,
   `ngsw-mcp-proxy.service`. Troubleshoot with
   `systemctl --user status ngsw-mcp.socket ngsw-mcp.service` and
