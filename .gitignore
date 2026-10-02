@@ -17,6 +17,7 @@ idle-timer.json
 # Claude Code internal files
 backups/
 .claude/
+settings.local.json
 projects/
 todos/
 shell-snapshots/
