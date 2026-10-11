@@ -114,18 +114,23 @@ def quote_title(title: str) -> str:
 # fit-columns
 # --------------------------------------------------------------------------
 
-def measure_widths(sheets: Sheets, props: dict, header_row: int) -> tuple[list[int], list[int]]:
+def measure_widths(sheets: Sheets, props: dict, header_row: int,
+                   data_first: int, data_last: int) -> tuple[list[int], list[int]]:
     """Return (data_widths, header_widths) in pixels, measured by Sheets itself.
 
     autoResizeDimensions has no way to ignore the header row, so measure on two
     throwaway duplicates of the tab: one with everything down to the header row
     deleted (data only) and one with everything except the header row deleted.
+    Rows are 1-based; the data rows measured are data_first..data_last inclusive.
+    The duplicates are hidden and built in one batchUpdate, so people with the
+    spreadsheet open never see them.
     """
     sheet_id = props["sheetId"]
     grid = props["gridProperties"]
     rows, cols = grid["rowCount"], grid["columnCount"]
-    if rows <= header_row:
-        sys.exit(f"Tab has {rows} rows; nothing below header row {header_row} to measure.")
+    if not header_row < data_first <= data_last <= rows:
+        sys.exit(f"Nothing to measure: header row {header_row}, data rows {data_first}-{data_last}, "
+                 f"tab has {rows} rows.")
 
     data_id = random.randrange(10**8, 2 * 10**9)
     head_id = data_id + 1
@@ -133,8 +138,8 @@ def measure_widths(sheets: Sheets, props: dict, header_row: int) -> tuple[list[i
 
     def unfreeze(sid):
         return {"updateSheetProperties": {
-            "properties": {"sheetId": sid, "gridProperties": {"frozenRowCount": 0}},
-            "fields": "gridProperties.frozenRowCount"}}
+            "properties": {"sheetId": sid, "hidden": True, "gridProperties": {"frozenRowCount": 0}},
+            "fields": "hidden,gridProperties.frozenRowCount"}}
 
     def delete_rows(sid, start, end):
         return {"deleteDimension": {"range": {
@@ -155,7 +160,8 @@ def measure_widths(sheets: Sheets, props: dict, header_row: int) -> tuple[list[i
         {"duplicateSheet": {"sourceSheetId": sheet_id, "newSheetId": data_id,
                             "newSheetName": f"~fit-data-{tag}"}},
         unfreeze(data_id),
-        delete_rows(data_id, 0, header_row),
+        *([delete_rows(data_id, data_last, rows)] if data_last < rows else []),
+        delete_rows(data_id, 0, data_first - 1),
         unwrap(data_id),
         autosize(data_id),
 
@@ -214,21 +220,28 @@ def cmd_fit_columns(args) -> int:
     header_row = args.header_row or frozen or 1
     title = props["title"]
 
-    data_px, head_px = measure_widths(sheets, props, header_row)
-    current = sheets.get("sheets.data(columnMetadata.pixelSize,rowData.values(formattedValue,"
-                         "effectiveFormat.wrapStrategy))", ranges=[quote_title(title)], grid=True)
+    data_first, data_last = header_row + 1, props["gridProperties"]["rowCount"]
+    if args.rows:
+        data_first, data_last = (int(x) for x in args.rows.split(":"))
+
+    data_px, head_px = measure_widths(sheets, props, header_row, data_first, data_last)
+    current = sheets.get("sheets(merges,data(columnMetadata.pixelSize,rowData.values(formattedValue,"
+                         "effectiveFormat.wrapStrategy)))", ranges=[quote_title(title)], grid=True)
     data0 = current["sheets"][0]["data"][0]
+    merged = [m for m in current["sheets"][0].get("merges", [])
+              if m["endColumnIndex"] - m["startColumnIndex"] > 1
+              and m["startRowIndex"] < data_last and m["endRowIndex"] > data_first - 1]
     cur_px = [c.get("pixelSize", 100) for c in data0.get("columnMetadata", [])]
     all_rows = [r.get("values", []) for r in data0.get("rowData", [])]
     row = all_rows[header_row - 1] if header_row - 1 < len(all_rows) else []
     headers = [c.get("formattedValue", "") for c in row]
-    body = all_rows[header_row:]
+    body = all_rows[data_first - 1:data_last]
 
     def body_cells(i):
         return [r[i] for r in body if i < len(r) and r[i].get("formattedValue")]
 
-    print(f"Tab {title!r}: header row {header_row}, sizing columns from the "
-          f"data rows only (pad {args.pad}px, min {args.min}px, max {args.max}px)\n")
+    print(f"Tab {title!r}: header row {header_row}, sizing columns from data rows "
+          f"{data_first}-{data_last} only (pad {args.pad}px, min {args.min}px, max {args.max}px)\n")
     print(f"{'Col':<4}{'Header':<28}{'Now':>5}{'Data':>6}{'Hdr':>6}{'New':>6}  Verdict")
     updates = []
     for i, measured in enumerate(data_px):
@@ -261,6 +274,14 @@ def cmd_fit_columns(args) -> int:
                       "startIndex": i, "endIndex": i + 1},
             "properties": {"pixelSize": new}, "fields": "pixelSize"}})
 
+    if merged:
+        where = ", ".join(f"{col_letter(m['startColumnIndex'])}{m['startRowIndex'] + 1}:"
+                          f"{col_letter(m['endColumnIndex'] - 1)}{m['endRowIndex']}" for m in merged[:6])
+        print(f"\nWARNING: {len(merged)} merged range(s) inside the measured rows ({where}"
+              f"{', …' if len(merged) > 6 else ''}). Sheets charges a merged cell's whole width to its "
+              f"first column, so those columns read too wide. Measure each table separately with "
+              f"--rows, or check these columns by eye.")
+
     if args.apply:
         sheets.batch_update(updates)
         print(f"\nApplied {len(updates)} column widths. Now fix every header that is not "
@@ -275,7 +296,7 @@ def cmd_fit_columns(args) -> int:
 # --------------------------------------------------------------------------
 
 NUMBER_AS_TEXT = re.compile(r"^\s*[-+]?[$€£]?\s?\d[\d,]*(\.\d+)?\s*%?\s*$")
-NUMBER_WITH_UNIT = re.compile(r"^\s*[-+~]?\d[\d,]*(\.\d+)?\s*[A-Za-zµ°Ω/%]{1,6}\s*$")
+NUMBER_WITH_UNIT = re.compile(r"^\s*[-+~]?[$€£]?\d[\d,]*(\.\d+)?\s*[A-Za-zµ°Ω/%]{1,6}\s*$")
 DATE_AS_TEXT = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})(\b.*)?$")
 LIST_SEPARATOR = re.compile(r",\s|;\s|\s/\s|\n")
 
@@ -414,6 +435,11 @@ def lint_sheet(sheet: dict, header_row_arg: int | None) -> list[str]:
         right_text = [(r, c) for r, c in texts if fmt(c, "horizontalAlignment") == "RIGHT"]
         if right_text and not numbers:
             findings.append(f"ALIGN: {label}: {where(right_text)} text but right-aligned")
+        for kind, group, default in (("text", texts, "LEFT"), ("numeric", numbers, "RIGHT")):
+            aligns = Counter(fmt(c, "horizontalAlignment") or default for _, c in group)
+            if len(aligns) > 1:
+                shown = ", ".join(f"{a}×{n}" for a, n in aligns.most_common())
+                findings.append(f"ALIGN: {label}: mixed alignment among {kind} cells in one column: {shown}")
 
         paragraphs = [(r, c) for r, c in texts if len(c["formattedValue"]) > 120]
         if paragraphs:
@@ -471,6 +497,9 @@ def main() -> int:
     p_fit = sub.add_parser("fit-columns", help="size columns from the data rows, ignoring headers")
     common(p_fit)
     p_fit.add_argument("--apply", action="store_true", help="set the widths (default: dry run)")
+    p_fit.add_argument("--rows", metavar="FIRST:LAST",
+                       help="1-based data rows to measure (default: everything below the header row); "
+                            "use it to measure one table on a tab that stacks several")
     p_fit.add_argument("--pad", type=int, default=8, help="px added to each measured width")
     p_fit.add_argument("--min", type=int, default=40, help="narrowest column, px")
     p_fit.add_argument("--max", type=int, default=420, help="widest column, px (free text wraps instead)")
