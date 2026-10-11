@@ -1,0 +1,486 @@
+#!/usr/bin/env python3
+# /// script
+# dependencies = ["requests"]
+# ///
+"""
+Mechanical checks for Google Sheets layout (companion to the
+creating-google-sheets skill).
+
+    uv run sheetcheck.py lint        SPREADSHEET [--sheet NAME | --gid N]
+    uv run sheetcheck.py fit-columns SPREADSHEET  --sheet NAME [--apply]
+
+SPREADSHEET is a spreadsheet ID or any docs.google.com/spreadsheets URL.
+
+Auth: an OAuth "authorized user" JSON (client_id, client_secret,
+refresh_token) with the `spreadsheets` scope, given by --token-file or
+$GSHEETS_TOKEN_FILE; or a ready-made access token in $GSHEETS_ACCESS_TOKEN.
+
+`lint` is read-only. `fit-columns` measures on temporary duplicates of the
+tab (deleted again before it exits) and only changes the real tab's column
+widths, and only with --apply.
+"""
+
+import argparse
+import json
+import os
+import random
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+import requests
+
+SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
+
+DEFAULT_ROW_PX = 21
+
+
+# --------------------------------------------------------------------------
+# Auth + REST plumbing
+# --------------------------------------------------------------------------
+
+def get_access_token(token_file: str | None) -> str:
+    token = os.environ.get("GSHEETS_ACCESS_TOKEN")
+    if token:
+        return token
+    token_file = token_file or os.environ.get("GSHEETS_TOKEN_FILE")
+    if not token_file:
+        sys.exit("No credentials: pass --token-file, or set GSHEETS_TOKEN_FILE "
+                 "or GSHEETS_ACCESS_TOKEN.")
+    creds = json.loads(Path(token_file).expanduser().read_text())
+    resp = requests.post(creds.get("token_uri", "https://oauth2.googleapis.com/token"), data={
+        "client_id": creds["client_id"],
+        "client_secret": creds["client_secret"],
+        "refresh_token": creds["refresh_token"],
+        "grant_type": "refresh_token",
+    })
+    if resp.status_code != 200:
+        sys.exit(f"Token refresh failed: {resp.status_code}\n{resp.text}")
+    return resp.json()["access_token"]
+
+
+class Sheets:
+    def __init__(self, spreadsheet: str, token: str):
+        m = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", spreadsheet)
+        self.id = m.group(1) if m else spreadsheet
+        self.headers = {"Authorization": f"Bearer {token}"}
+
+    def get(self, fields: str, ranges: list[str] | None = None, grid: bool = False) -> dict:
+        params = {"fields": fields}
+        if ranges:
+            params["ranges"] = ranges
+        if grid:
+            params["includeGridData"] = "true"
+        resp = requests.get(f"{SHEETS_API}/{self.id}", headers=self.headers, params=params)
+        if resp.status_code != 200:
+            sys.exit(f"spreadsheets.get failed: {resp.status_code}\n{resp.text}")
+        return resp.json()
+
+    def batch_update(self, reqs: list[dict]) -> dict:
+        resp = requests.post(f"{SHEETS_API}/{self.id}:batchUpdate", headers=self.headers,
+                             json={"requests": reqs})
+        if resp.status_code != 200:
+            raise RuntimeError(f"batchUpdate failed: {resp.status_code}\n{resp.text}")
+        return resp.json()
+
+    def sheet_properties(self) -> list[dict]:
+        return [s["properties"] for s in self.get("sheets.properties")["sheets"]]
+
+    def find_sheet(self, name: str | None, gid: int | None) -> dict:
+        props = self.sheet_properties()
+        for p in props:
+            if (name is not None and p["title"] == name) or (gid is not None and p["sheetId"] == gid):
+                return p
+        titles = ", ".join(repr(p["title"]) for p in props)
+        sys.exit(f"No such tab (name={name!r}, gid={gid}). Tabs: {titles}")
+
+
+def col_letter(index: int) -> str:
+    """0-based column index -> A1 letter(s)."""
+    out = ""
+    index += 1
+    while index:
+        index, rem = divmod(index - 1, 26)
+        out = chr(ord("A") + rem) + out
+    return out
+
+
+def quote_title(title: str) -> str:
+    return "'" + title.replace("'", "''") + "'"
+
+
+# --------------------------------------------------------------------------
+# fit-columns
+# --------------------------------------------------------------------------
+
+def measure_widths(sheets: Sheets, props: dict, header_row: int) -> tuple[list[int], list[int]]:
+    """Return (data_widths, header_widths) in pixels, measured by Sheets itself.
+
+    autoResizeDimensions has no way to ignore the header row, so measure on two
+    throwaway duplicates of the tab: one with everything down to the header row
+    deleted (data only) and one with everything except the header row deleted.
+    """
+    sheet_id = props["sheetId"]
+    grid = props["gridProperties"]
+    rows, cols = grid["rowCount"], grid["columnCount"]
+    if rows <= header_row:
+        sys.exit(f"Tab has {rows} rows; nothing below header row {header_row} to measure.")
+
+    data_id = random.randrange(10**8, 2 * 10**9)
+    head_id = data_id + 1
+    tag = f"{data_id:x}"
+
+    def unfreeze(sid):
+        return {"updateSheetProperties": {
+            "properties": {"sheetId": sid, "gridProperties": {"frozenRowCount": 0}},
+            "fields": "gridProperties.frozenRowCount"}}
+
+    def delete_rows(sid, start, end):
+        return {"deleteDimension": {"range": {
+            "sheetId": sid, "dimension": "ROWS", "startIndex": start, "endIndex": end}}}
+
+    def autosize(sid):
+        return {"autoResizeDimensions": {"dimensions": {
+            "sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": cols}}}
+
+    def unwrap(sid):
+        # autoResize leaves a column alone when its cells wrap, so measure the
+        # natural single-line width whatever the current wrap setting is.
+        return {"repeatCell": {"range": {"sheetId": sid},
+                               "cell": {"userEnteredFormat": {"wrapStrategy": "OVERFLOW_CELL"}},
+                               "fields": "userEnteredFormat.wrapStrategy"}}
+
+    reqs = [
+        {"duplicateSheet": {"sourceSheetId": sheet_id, "newSheetId": data_id,
+                            "newSheetName": f"~fit-data-{tag}"}},
+        unfreeze(data_id),
+        delete_rows(data_id, 0, header_row),
+        unwrap(data_id),
+        autosize(data_id),
+
+        {"duplicateSheet": {"sourceSheetId": sheet_id, "newSheetId": head_id,
+                            "newSheetName": f"~fit-head-{tag}"}},
+        unfreeze(head_id),
+        delete_rows(head_id, header_row, rows),
+    ]
+    if header_row > 1:
+        reqs.append(delete_rows(head_id, 0, header_row - 1))
+    reqs += [
+        {"unmergeCells": {"range": {"sheetId": head_id}}},
+        unwrap(head_id),
+        autosize(head_id),
+    ]
+
+    try:
+        sheets.batch_update(reqs)
+        meta = sheets.get("sheets(properties.sheetId,data.columnMetadata.pixelSize)",
+                          ranges=[f"~fit-data-{tag}", f"~fit-head-{tag}"], grid=True)
+    finally:
+        # Never leave the scratch tabs behind, whatever went wrong above.
+        existing = {p["sheetId"] for p in sheets.sheet_properties()}
+        cleanup = [{"deleteSheet": {"sheetId": sid}} for sid in (data_id, head_id) if sid in existing]
+        if cleanup:
+            sheets.batch_update(cleanup)
+
+    widths = {}
+    for s in meta["sheets"]:
+        widths[s["properties"]["sheetId"]] = [
+            c.get("pixelSize", 100) for c in s["data"][0].get("columnMetadata", [])]
+    return widths[data_id], widths[head_id]
+
+
+def header_verdict(header: str, header_px: int, width: int) -> str:
+    if not header.strip():
+        return ""
+    if header_px <= width:
+        return "fits"
+    # Rough per-character scaling of the measured single-line width.
+    px_per_char = header_px / max(len(header), 1)
+    words = header.split()
+    longest_word_px = max(len(w) for w in words) * px_per_char
+    if len(words) > 1 and longest_word_px <= width:
+        lines = -(-header_px // width) + (1 if len(words) > 2 else 0)
+        if lines <= 3:
+            return f"WRAP header (~{min(lines, len(words))} lines)"
+    fit_chars = int(width / px_per_char)
+    return f"SHORTEN header to <= ~{fit_chars} chars/line (or smaller font / rotate)"
+
+
+def cmd_fit_columns(args) -> int:
+    sheets = Sheets(args.spreadsheet, get_access_token(args.token_file))
+    props = sheets.find_sheet(args.sheet, args.gid)
+    frozen = props["gridProperties"].get("frozenRowCount", 0)
+    header_row = args.header_row or frozen or 1
+    title = props["title"]
+
+    data_px, head_px = measure_widths(sheets, props, header_row)
+    current = sheets.get("sheets.data(columnMetadata.pixelSize,rowData.values(formattedValue,"
+                         "effectiveFormat.wrapStrategy))", ranges=[quote_title(title)], grid=True)
+    data0 = current["sheets"][0]["data"][0]
+    cur_px = [c.get("pixelSize", 100) for c in data0.get("columnMetadata", [])]
+    all_rows = [r.get("values", []) for r in data0.get("rowData", [])]
+    row = all_rows[header_row - 1] if header_row - 1 < len(all_rows) else []
+    headers = [c.get("formattedValue", "") for c in row]
+    body = all_rows[header_row:]
+
+    def body_cells(i):
+        return [r[i] for r in body if i < len(r) and r[i].get("formattedValue")]
+
+    print(f"Tab {title!r}: header row {header_row}, sizing columns from the "
+          f"data rows only (pad {args.pad}px, min {args.min}px, max {args.max}px)\n")
+    print(f"{'Col':<4}{'Header':<28}{'Now':>5}{'Data':>6}{'Hdr':>6}{'New':>6}  Verdict")
+    updates = []
+    for i, measured in enumerate(data_px):
+        header = headers[i] if i < len(headers) else ""
+        cells = body_cells(i)
+        if not cells:
+            if header.strip():
+                print(f"{col_letter(i):<4}{header[:26]:<28}{cur_px[i]:>5}{'':>18}  no data: left alone")
+            continue
+        want = measured + args.pad
+        new = max(args.min, min(args.max, want))
+        notes = []
+        wraps = any(c.get("effectiveFormat", {}).get("wrapStrategy") == "WRAP" for c in cells)
+        if want > args.max:
+            notes.append(f"data CLAMPED (longest value needs {want}px): "
+                         + ("wraps" if wraps else "set WRAP on this column on purpose")
+                         + ", or split the text into more columns")
+        elif wraps:
+            notes.append("has WRAP cells that now fit on one line")
+        # No pad here: a header measured at N px renders on one line in an N px column.
+        verdict = header_verdict(header, head_px[i], new)
+        if verdict:
+            notes.append(verdict)
+        shown = header.replace("\n", " ")
+        shown = shown if len(shown) <= 26 else shown[:25] + "…"
+        print(f"{col_letter(i):<4}{shown:<28}{cur_px[i] if i < len(cur_px) else '':>5}"
+              f"{measured:>6}{head_px[i]:>6}{new:>6}  {'; '.join(notes)}")
+        updates.append({"updateDimensionProperties": {
+            "range": {"sheetId": props["sheetId"], "dimension": "COLUMNS",
+                      "startIndex": i, "endIndex": i + 1},
+            "properties": {"pixelSize": new}, "fields": "pixelSize"}})
+
+    if args.apply:
+        sheets.batch_update(updates)
+        print(f"\nApplied {len(updates)} column widths. Now fix every header that is not "
+              f"'fits', then look at the tab in a browser.")
+    else:
+        print("\nDry run: nothing changed. Re-run with --apply to set the 'New' widths.")
+    return 0
+
+
+# --------------------------------------------------------------------------
+# lint
+# --------------------------------------------------------------------------
+
+NUMBER_AS_TEXT = re.compile(r"^\s*[-+]?[$€£]?\s?\d[\d,]*(\.\d+)?\s*%?\s*$")
+NUMBER_WITH_UNIT = re.compile(r"^\s*[-+~]?\d[\d,]*(\.\d+)?\s*[A-Za-zµ°Ω/%]{1,6}\s*$")
+DATE_AS_TEXT = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})(\b.*)?$")
+LIST_SEPARATOR = re.compile(r",\s|;\s|\s/\s|\n")
+
+LINT_FIELDS = (
+    "sheets(properties,bandedRanges.range,conditionalFormats.booleanRule.condition,"
+    "data(columnMetadata(pixelSize,hiddenByUser),rowMetadata(pixelSize,hiddenByUser,hiddenByFilter),"
+    "rowData.values(formattedValue,effectiveValue,"
+    "effectiveFormat(numberFormat,horizontalAlignment,verticalAlignment,wrapStrategy))))"
+)
+
+
+def has_striping(sheet: dict) -> bool:
+    if sheet.get("bandedRanges"):
+        return True
+    for rule in sheet.get("conditionalFormats", []):
+        for value in rule.get("booleanRule", {}).get("condition", {}).get("values", []):
+            formula = value.get("userEnteredValue", "").upper().replace(" ", "")
+            if "ROW()" in formula and any(f in formula for f in ("ISEVEN", "ISODD", "MOD(")):
+                return True
+    return False
+
+
+def decimals_of(formatted: str) -> int | None:
+    m = re.search(r"\d(?:[\d,]*)(?:\.(\d+))?", formatted)
+    if not m:
+        return None
+    return len(m.group(1) or "")
+
+
+def lint_sheet(sheet: dict, header_row_arg: int | None) -> list[str]:
+    props = sheet["properties"]
+    grid = props.get("gridProperties", {})
+    data = (sheet.get("data") or [{}])[0]
+    rows = [r.get("values", []) for r in data.get("rowData", [])]
+    row_meta = data.get("rowMetadata", [])  # explicit heights only: auto-grown rows still read 21
+    findings = []
+
+    frozen = grid.get("frozenRowCount", 0)
+    header_row = header_row_arg or frozen or 1
+
+    last_row = max((i + 1 for i, r in enumerate(rows)
+                    if any(c.get("formattedValue") for c in r)), default=0)
+    last_col = max((j + 1 for r in rows for j, c in enumerate(r)
+                    if c.get("formattedValue")), default=0)
+    if last_row == 0:
+        return ["tab is empty"]
+
+    # --- trimmed grid -------------------------------------------------------
+    extra_rows = grid.get("rowCount", 0) - last_row
+    extra_cols = grid.get("columnCount", 0) - last_col
+    if extra_rows > 0 or extra_cols > 0:
+        findings.append(f"TRIM: {extra_rows} empty rows below row {last_row} and {extra_cols} "
+                        f"empty columns right of {col_letter(last_col - 1)} "
+                        f"(grid is {grid.get('rowCount')}x{grid.get('columnCount')})")
+
+    # --- frozen section -----------------------------------------------------
+    if frozen == 0:
+        findings.append("FREEZE: no frozen rows; freeze the title + header rows")
+    elif frozen > 3:
+        findings.append(f"FREEZE: {frozen} rows frozen; only the title and header rows belong there")
+    frozen_px = sum(m.get("pixelSize", DEFAULT_ROW_PX) for m in row_meta[:frozen])
+    if frozen_px > 120:
+        findings.append(f"FREEZE: frozen section is {frozen_px}px tall; move prose to a notes tab")
+    for i, r in enumerate(rows[:frozen]):
+        for j, c in enumerate(r):
+            text = c.get("formattedValue", "")
+            if len(text) > 100:
+                findings.append(f"FREEZE: {col_letter(j)}{i + 1} holds a {len(text)}-char "
+                                f"paragraph inside the frozen section")
+
+    # --- striping -----------------------------------------------------------
+    if last_row - header_row >= 3 and not has_striping(sheet):
+        findings.append("STRIPE: no alternating colours (addBanding) on the data rows")
+
+    # --- per-column data checks ----------------------------------------------
+    body = rows[header_row:last_row]
+    headers = rows[header_row - 1] if header_row - 1 < len(rows) else []
+    valign_bad = 0
+    for j in range(last_col):
+        name = headers[j].get("formattedValue", "") if j < len(headers) else ""
+        label = f"{col_letter(j)} ({name.strip()[:24]!r})" if name.strip() else col_letter(j)
+        cells = [(header_row + 1 + i, r[j]) for i, r in enumerate(body)
+                 if j < len(r) and r[j].get("formattedValue")]
+        if not cells:
+            continue
+
+        numbers, texts = [], []
+        for rownum, c in cells:
+            ev = c.get("effectiveValue", {})
+            (numbers if "numberValue" in ev else texts if "stringValue" in ev else []).append((rownum, c))
+            if c.get("effectiveFormat", {}).get("verticalAlignment") != "MIDDLE":
+                valign_bad += 1
+
+        def fmt(c, key):
+            return c.get("effectiveFormat", {}).get(key)
+
+        def where(items):
+            rownums = [r for r, _ in items]
+            shown = ", ".join(str(r) for r in rownums[:4])
+            return f"{len(rownums)} cells (rows {shown}{', …' if len(rownums) > 4 else ''})"
+
+        typed_text = [(r, c) for r, c in texts if (fmt(c, "numberFormat") or {}).get("type") != "TEXT"]
+        num_text = [(r, c) for r, c in typed_text if NUMBER_AS_TEXT.match(c["formattedValue"])]
+        if num_text:
+            findings.append(f"TYPE: {label}: {where(num_text)} are numbers stored as text "
+                            f"(e.g. {num_text[0][1]['formattedValue']!r})")
+        date_text = [(r, c) for r, c in typed_text if DATE_AS_TEXT.match(c["formattedValue"])]
+        if date_text:
+            findings.append(f"TYPE: {label}: {where(date_text)} are dates stored as text "
+                            f"(e.g. {date_text[0][1]['formattedValue']!r})")
+        unit_text = [(r, c) for r, c in typed_text if NUMBER_WITH_UNIT.match(c["formattedValue"])
+                     and not NUMBER_AS_TEXT.match(c["formattedValue"])]
+        if len(unit_text) >= max(2, len(cells) // 2):
+            findings.append(f"TYPE: {label}: {where(unit_text)} are number+unit text "
+                            f"(e.g. {unit_text[0][1]['formattedValue']!r}); store the number and "
+                            f"put the unit in the header or the number format")
+
+        if numbers:
+            patterns = Counter((fmt(c, "numberFormat") or {}).get("pattern", "") for _, c in numbers)
+            if len(patterns) > 1:
+                shown = ", ".join(f"{p or 'Automatic'!r}×{n}" for p, n in patterns.most_common())
+                findings.append(f"FORMAT: {label}: mixed number formats in one column: {shown}")
+            elif "" in patterns:
+                decs = Counter(decimals_of(c["formattedValue"]) for _, c in numbers)
+                if len(decs) > 1:
+                    findings.append(f"FORMAT: {label}: no explicit number format and values show "
+                                    f"{sorted(d for d in decs if d is not None)} decimal places, "
+                                    f"so decimal points will not line up")
+            misaligned = [(r, c) for r, c in numbers if fmt(c, "horizontalAlignment") in ("LEFT", "CENTER")]
+            if misaligned:
+                findings.append(f"ALIGN: {label}: {where(misaligned)} numeric but not right-aligned")
+            if texts and len(texts) < len(numbers):
+                findings.append(f"TYPE: {label}: mostly numbers but {where(texts)} are text "
+                                f"(e.g. {texts[0][1]['formattedValue']!r})")
+
+        right_text = [(r, c) for r, c in texts if fmt(c, "horizontalAlignment") == "RIGHT"]
+        if right_text and not numbers:
+            findings.append(f"ALIGN: {label}: {where(right_text)} text but right-aligned")
+
+        paragraphs = [(r, c) for r, c in texts if len(c["formattedValue"]) > 120]
+        if paragraphs:
+            findings.append(f"PROSE: {label}: {where(paragraphs)} hold paragraphs "
+                            f"(>120 chars); break the facts out into columns")
+        lists = [(r, c) for r, c in texts if len(LIST_SEPARATOR.findall(c["formattedValue"])) >= 2]
+        if len(lists) >= max(2, len(texts) // 3):
+            findings.append(f"PROSE: {label}: {where(lists)} look like delimited lists "
+                            f"(e.g. {lists[0][1]['formattedValue'][:40]!r}); use one column or "
+                            f"row per item")
+
+    if valign_bad:
+        findings.append(f"ALIGN: {valign_bad} data cells are not vertically centred (MIDDLE)")
+
+    return findings
+
+
+def cmd_lint(args) -> int:
+    sheets = Sheets(args.spreadsheet, get_access_token(args.token_file))
+    ranges = None
+    if args.sheet is not None or args.gid is not None:
+        ranges = [quote_title(sheets.find_sheet(args.sheet, args.gid)["title"])]
+    doc = sheets.get(LINT_FIELDS, ranges=ranges, grid=True)
+    total = 0
+    for sheet in doc["sheets"]:
+        title = sheet["properties"]["title"]
+        if sheet["properties"].get("sheetType", "GRID") != "GRID":
+            continue
+        findings = lint_sheet(sheet, args.header_row)
+        total += len(findings)
+        print(f"== {title!r}: {len(findings)} finding(s)")
+        for f in findings:
+            print(f"   {f}")
+    print(f"\n{total} finding(s). A clean lint is not a pass: header fit and rendering still "
+          f"need fit-columns and a look in the browser.")
+    return 1 if total else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    def common(p):
+        p.add_argument("spreadsheet", help="spreadsheet ID or URL")
+        p.add_argument("--sheet", help="tab name")
+        p.add_argument("--gid", type=int, help="tab gid (sheetId)")
+        p.add_argument("--header-row", type=int,
+                       help="1-based row holding the column headers (default: last frozen row, else 1)")
+        p.add_argument("--token-file", help="OAuth authorized-user JSON (default: $GSHEETS_TOKEN_FILE)")
+
+    p_lint = sub.add_parser("lint", help="read-only layout/data checks (all tabs by default)")
+    common(p_lint)
+    p_lint.set_defaults(func=cmd_lint)
+
+    p_fit = sub.add_parser("fit-columns", help="size columns from the data rows, ignoring headers")
+    common(p_fit)
+    p_fit.add_argument("--apply", action="store_true", help="set the widths (default: dry run)")
+    p_fit.add_argument("--pad", type=int, default=8, help="px added to each measured width")
+    p_fit.add_argument("--min", type=int, default=40, help="narrowest column, px")
+    p_fit.add_argument("--max", type=int, default=420, help="widest column, px (free text wraps instead)")
+    p_fit.set_defaults(func=cmd_fit_columns)
+
+    args = parser.parse_args()
+    if args.cmd == "fit-columns" and args.sheet is None and args.gid is None:
+        parser.error("fit-columns needs --sheet or --gid")
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

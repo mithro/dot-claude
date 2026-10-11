@@ -59,12 +59,13 @@ Enforcement hooks for SSH, git, and command safety:
 | `hook-block-inline-scripts` | Blocks `python -c` and heredocs (write to a file first) |
 | `hook-safe-force-push` | Blocks bare `git push --force` (use `git safe-force-push <branch>`) |
 
-### Productivity (2)
+### Productivity (3)
 
 | Plugin | Description |
 |--------|-------------|
 | `my-conventions` | Personal coding conventions: Python/uv, ISO dates, small commits, Apache 2.0, etc. |
 | `github-repo-setup` | GitHub repository configuration skill and tag ruleset script |
+| `google-sheets` | Google Sheets layout skill (`creating-google-sheets`) and `sheetcheck.py` column-fit / lint tool |
 
 ## Structure
 

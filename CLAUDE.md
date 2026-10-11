@@ -21,3 +21,4 @@ claude plugin marketplace add mithro/dot-claude
 - `hook-*` — 7 hooks (allow-ssh, block /tmp, stderr, SSH hash, SSH unsafe options, force-push, inline scripts)
 - `my-conventions` — Universal coding conventions (Python/uv, dates, commits, etc.)
 - `github-repo-setup` — GitHub repository configuration tools and skills
+- `google-sheets` — Google Sheets layout conventions skill + `sheetcheck.py` (column fit from data, lint)

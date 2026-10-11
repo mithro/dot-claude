@@ -1,0 +1,6 @@
+{
+  "name": "google-sheets",
+  "description": "Google Sheets layout conventions — the creating-google-sheets skill plus sheetcheck.py (size columns from data not headers, lint types/formats/alignment/striping/trim)",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}
