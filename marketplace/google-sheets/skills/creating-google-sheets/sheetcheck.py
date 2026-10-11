@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# dependencies = ["requests"]
+# dependencies = ["requests", "google-auth"]
 # ///
 """
 Mechanical checks for Google Sheets layout (companion to the
@@ -11,9 +11,11 @@ creating-google-sheets skill).
 
 SPREADSHEET is a spreadsheet ID or any docs.google.com/spreadsheets URL.
 
-Auth: an OAuth "authorized user" JSON (client_id, client_secret,
-refresh_token) with the `spreadsheets` scope, given by --token-file or
-$GSHEETS_TOKEN_FILE; or a ready-made access token in $GSHEETS_ACCESS_TOKEN.
+Auth: --token-file or $GSHEETS_TOKEN_FILE naming either a service-account
+key (the spreadsheet must be shared with its client_email as an editor) or an
+OAuth "authorized user" JSON (client_id, client_secret, refresh_token) with
+the `spreadsheets` scope; or a ready-made access token in
+$GSHEETS_ACCESS_TOKEN.
 
 `lint` is read-only. `fit-columns` measures on temporary duplicates of the
 tab (deleted again before it exits) and only changes the real tab's column
@@ -34,6 +36,7 @@ import requests
 SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets"
 
 DEFAULT_ROW_PX = 21
+MAX_MERGES = 150      # merged cells measured individually per run
 
 
 # --------------------------------------------------------------------------
@@ -49,6 +52,13 @@ def get_access_token(token_file: str | None) -> str:
         sys.exit("No credentials: pass --token-file, or set GSHEETS_TOKEN_FILE "
                  "or GSHEETS_ACCESS_TOKEN.")
     creds = json.loads(Path(token_file).expanduser().read_text())
+    if creds.get("type") == "service_account":
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+        sa = service_account.Credentials.from_service_account_info(
+            creds, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        sa.refresh(Request())
+        return sa.token
     resp = requests.post(creds.get("token_uri", "https://oauth2.googleapis.com/token"), data={
         "client_id": creds["client_id"],
         "client_secret": creds["client_secret"],
@@ -74,7 +84,9 @@ class Sheets:
             params["includeGridData"] = "true"
         resp = requests.get(f"{SHEETS_API}/{self.id}", headers=self.headers, params=params)
         if resp.status_code != 200:
-            sys.exit(f"spreadsheets.get failed: {resp.status_code}\n{resp.text}")
+            hint = ("\nIs the spreadsheet shared with the account these credentials belong to?"
+                    if resp.status_code in (403, 404) else "")
+            sys.exit(f"spreadsheets.get failed: {resp.status_code}\n{resp.text}{hint}")
         return resp.json()
 
     def batch_update(self, reqs: list[dict]) -> dict:
@@ -114,15 +126,21 @@ def quote_title(title: str) -> str:
 # fit-columns
 # --------------------------------------------------------------------------
 
-def measure_widths(sheets: Sheets, props: dict, header_row: int,
-                   data_first: int, data_last: int) -> tuple[list[int], list[int]]:
-    """Return (data_widths, header_widths) in pixels, measured by Sheets itself.
+def measure_widths(sheets: Sheets, props: dict, header_row: int, data_first: int, data_last: int,
+                   merges: list[dict]) -> tuple[list[int], list[int], list[int]]:
+    """Return (data_widths, header_widths, merge_widths) in pixels, measured by Sheets itself.
 
-    autoResizeDimensions has no way to ignore the header row, so measure on two
+    autoResizeDimensions has no way to ignore the header row, so measure on
     throwaway duplicates of the tab: one with everything down to the header row
     deleted (data only) and one with everything except the header row deleted.
     Rows are 1-based; the data rows measured are data_first..data_last inclusive.
-    The duplicates are hidden and built in one batchUpdate, so people with the
+
+    `merges` are the multi-column merged ranges inside the data rows. Sheets
+    charges a merged cell's whole width to its first column, so they are blanked
+    on the data copy (the columns are then sized by their unmerged values) and
+    each one is measured on its own in a third scratch tab.
+
+    The scratch tabs are hidden and built in one batchUpdate, so people with the
     spreadsheet open never see them.
     """
     sheet_id = props["sheetId"]
@@ -133,7 +151,7 @@ def measure_widths(sheets: Sheets, props: dict, header_row: int,
                  f"tab has {rows} rows.")
 
     data_id = random.randrange(10**8, 2 * 10**9)
-    head_id = data_id + 1
+    head_id, merge_id = data_id + 1, data_id + 2
     tag = f"{data_id:x}"
 
     def unfreeze(sid):
@@ -145,9 +163,9 @@ def measure_widths(sheets: Sheets, props: dict, header_row: int,
         return {"deleteDimension": {"range": {
             "sheetId": sid, "dimension": "ROWS", "startIndex": start, "endIndex": end}}}
 
-    def autosize(sid):
+    def autosize(sid, n_cols=cols):
         return {"autoResizeDimensions": {"dimensions": {
-            "sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": cols}}}
+            "sheetId": sid, "dimension": "COLUMNS", "startIndex": 0, "endIndex": n_cols}}}
 
     def unwrap(sid):
         # autoResize leaves a column alone when its cells wrap, so measure the
@@ -160,6 +178,8 @@ def measure_widths(sheets: Sheets, props: dict, header_row: int,
         {"duplicateSheet": {"sourceSheetId": sheet_id, "newSheetId": data_id,
                             "newSheetName": f"~fit-data-{tag}"}},
         unfreeze(data_id),
+        # Blank the merged cells (no "rows" given = clear) while the row numbers still match.
+        *[{"updateCells": {"range": {**m, "sheetId": data_id}, "fields": "userEnteredValue"}} for m in merges],
         *([delete_rows(data_id, data_last, rows)] if data_last < rows else []),
         delete_rows(data_id, 0, data_first - 1),
         unwrap(data_id),
@@ -178,14 +198,36 @@ def measure_widths(sheets: Sheets, props: dict, header_row: int,
         autosize(head_id),
     ]
 
+    # One slot of columns per merged cell, so each gets its own measured width.
+    offsets, total = [], 0
+    for m in merges:
+        offsets.append(total)
+        total += m["endColumnIndex"] - m["startColumnIndex"]
+    if merges:
+        reqs.append({"addSheet": {"properties": {
+            "sheetId": merge_id, "title": f"~fit-merge-{tag}", "hidden": True,
+            "gridProperties": {"rowCount": 1, "columnCount": total}}}})
+        for m, off in zip(merges, offsets):
+            anchor = {"sheetId": sheet_id,
+                      "startRowIndex": m["startRowIndex"], "endRowIndex": m["startRowIndex"] + 1,
+                      "startColumnIndex": m["startColumnIndex"], "endColumnIndex": m["startColumnIndex"] + 1}
+            dest = {"sheetId": merge_id, "startRowIndex": 0, "endRowIndex": 1,
+                    "startColumnIndex": off, "endColumnIndex": off + 1}
+            # Values, not formulas: a formula pasted elsewhere would compute something else.
+            for paste in ("PASTE_VALUES", "PASTE_FORMAT"):
+                reqs.append({"copyPaste": {"source": anchor, "destination": dest, "pasteType": paste}})
+        reqs += [{"unmergeCells": {"range": {"sheetId": merge_id}}}, unwrap(merge_id), autosize(merge_id, total)]
+
+    scratch = [data_id, head_id] + ([merge_id] if merges else [])
     try:
         sheets.batch_update(reqs)
         meta = sheets.get("sheets(properties.sheetId,data.columnMetadata.pixelSize)",
-                          ranges=[f"~fit-data-{tag}", f"~fit-head-{tag}"], grid=True)
+                          ranges=[f"~fit-data-{tag}", f"~fit-head-{tag}"]
+                          + ([f"~fit-merge-{tag}"] if merges else []), grid=True)
     finally:
         # Never leave the scratch tabs behind, whatever went wrong above.
         existing = {p["sheetId"] for p in sheets.sheet_properties()}
-        cleanup = [{"deleteSheet": {"sheetId": sid}} for sid in (data_id, head_id) if sid in existing]
+        cleanup = [{"deleteSheet": {"sheetId": sid}} for sid in scratch if sid in existing]
         if cleanup:
             sheets.batch_update(cleanup)
 
@@ -193,7 +235,8 @@ def measure_widths(sheets: Sheets, props: dict, header_row: int,
     for s in meta["sheets"]:
         widths[s["properties"]["sheetId"]] = [
             c.get("pixelSize", 100) for c in s["data"][0].get("columnMetadata", [])]
-    return widths[data_id], widths[head_id]
+    merge_px = [widths[merge_id][off] for off in offsets] if merges else []
+    return widths[data_id], widths[head_id], merge_px
 
 
 def header_verdict(header: str, header_px: int, width: int) -> str:
@@ -213,6 +256,11 @@ def header_verdict(header: str, header_px: int, width: int) -> str:
     return f"SHORTEN header to <= ~{fit_chars} chars/line (or smaller font / rotate)"
 
 
+def a1_range(m: dict) -> str:
+    return (f"{col_letter(m['startColumnIndex'])}{m['startRowIndex'] + 1}:"
+            f"{col_letter(m['endColumnIndex'] - 1)}{m['endRowIndex']}")
+
+
 def cmd_fit_columns(args) -> int:
     sheets = Sheets(args.spreadsheet, get_access_token(args.token_file))
     props = sheets.find_sheet(args.sheet, args.gid)
@@ -224,68 +272,88 @@ def cmd_fit_columns(args) -> int:
     if args.rows:
         data_first, data_last = (int(x) for x in args.rows.split(":"))
 
-    data_px, head_px = measure_widths(sheets, props, header_row, data_first, data_last)
     current = sheets.get("sheets(merges,data(columnMetadata.pixelSize,rowData.values(formattedValue,"
                          "effectiveFormat.wrapStrategy)))", ranges=[quote_title(title)], grid=True)
     data0 = current["sheets"][0]["data"][0]
-    merged = [m for m in current["sheets"][0].get("merges", [])
-              if m["endColumnIndex"] - m["startColumnIndex"] > 1
-              and m["startRowIndex"] < data_last and m["endRowIndex"] > data_first - 1]
     cur_px = [c.get("pixelSize", 100) for c in data0.get("columnMetadata", [])]
     all_rows = [r.get("values", []) for r in data0.get("rowData", [])]
-    row = all_rows[header_row - 1] if header_row - 1 < len(all_rows) else []
-    headers = [c.get("formattedValue", "") for c in row]
-    body = all_rows[data_first - 1:data_last]
+
+    def text_at(r, c):
+        return all_rows[r][c].get("formattedValue", "") if r < len(all_rows) and c < len(all_rows[r]) else ""
+
+    wide = [m for m in current["sheets"][0].get("merges", [])
+            if m["endColumnIndex"] - m["startColumnIndex"] > 1]
+    # Merged cells with text inside the measured rows, and merged headers by their first column.
+    merges = [m for m in wide if data_first - 1 <= m["startRowIndex"] < data_last
+              and text_at(m["startRowIndex"], m["startColumnIndex"])][:MAX_MERGES]
+    header_span = {m["startColumnIndex"]: m["endColumnIndex"] for m in wide
+                   if m["startRowIndex"] <= header_row - 1 < m["endRowIndex"]}
+    in_merge = {(r, c) for m in merges for r in range(m["startRowIndex"], m["endRowIndex"])
+                for c in range(m["startColumnIndex"], m["endColumnIndex"])}
+
+    data_px, head_px, merge_px = measure_widths(sheets, props, header_row, data_first, data_last, merges)
 
     def body_cells(i):
-        return [r[i] for r in body if i < len(r) and r[i].get("formattedValue")]
+        return [all_rows[r][i] for r in range(data_first - 1, min(data_last, len(all_rows)))
+                if (r, i) not in in_merge and i < len(all_rows[r]) and all_rows[r][i].get("formattedValue")]
+
+    # First pass: the width each column gets (columns with no unmerged data keep their width).
+    final, sized = list(cur_px), {}
+    for i, measured in enumerate(data_px):
+        if body_cells(i):
+            sized[i] = measured + args.pad
+            final[i] = max(args.min, min(args.max, sized[i]))
 
     print(f"Tab {title!r}: header row {header_row}, sizing columns from data rows "
           f"{data_first}-{data_last} only (pad {args.pad}px, min {args.min}px, max {args.max}px)\n")
     print(f"{'Col':<4}{'Header':<28}{'Now':>5}{'Data':>6}{'Hdr':>6}{'New':>6}  Verdict")
     updates = []
     for i, measured in enumerate(data_px):
-        header = headers[i] if i < len(headers) else ""
-        cells = body_cells(i)
-        if not cells:
+        header = text_at(header_row - 1, i)
+        shown = header.replace("\n", " ")
+        shown = shown if len(shown) <= 26 else shown[:25] + "…"
+        # A header merged over several columns has all of their widths to fit in.
+        end = header_span.get(i, i + 1)
+        span = f" (merged over {col_letter(i)}:{col_letter(end - 1)})" if end > i + 1 else ""
+        # No pad here: a header measured at N px renders on one line in an N px column.
+        verdict = header_verdict(header, head_px[i], sum(final[i:end]))
+        if i not in sized:
             if header.strip():
-                print(f"{col_letter(i):<4}{header[:26]:<28}{cur_px[i]:>5}{'':>18}  no data: left alone")
+                print(f"{col_letter(i):<4}{shown:<28}{cur_px[i]:>5}{'':>6}{head_px[i]:>6}{'':>6}  "
+                      f"no unmerged data: width left alone; {verdict}{span}")
             continue
-        want = measured + args.pad
-        new = max(args.min, min(args.max, want))
         notes = []
-        wraps = any(c.get("effectiveFormat", {}).get("wrapStrategy") == "WRAP" for c in cells)
-        if want > args.max:
-            notes.append(f"data CLAMPED (longest value needs {want}px): "
+        wraps = any(c.get("effectiveFormat", {}).get("wrapStrategy") == "WRAP" for c in body_cells(i))
+        if sized[i] > args.max:
+            notes.append(f"data CLAMPED (longest value needs {sized[i]}px): "
                          + ("wraps" if wraps else "set WRAP on this column on purpose")
                          + ", or split the text into more columns")
         elif wraps:
             notes.append("has WRAP cells that now fit on one line")
-        # No pad here: a header measured at N px renders on one line in an N px column.
-        verdict = header_verdict(header, head_px[i], new)
         if verdict:
-            notes.append(verdict)
-        shown = header.replace("\n", " ")
-        shown = shown if len(shown) <= 26 else shown[:25] + "…"
-        print(f"{col_letter(i):<4}{shown:<28}{cur_px[i] if i < len(cur_px) else '':>5}"
-              f"{measured:>6}{head_px[i]:>6}{new:>6}  {'; '.join(notes)}")
+            notes.append(verdict + span)
+        print(f"{col_letter(i):<4}{shown:<28}{cur_px[i]:>5}{measured:>6}{head_px[i]:>6}{final[i]:>6}  "
+              f"{'; '.join(notes)}")
         updates.append({"updateDimensionProperties": {
             "range": {"sheetId": props["sheetId"], "dimension": "COLUMNS",
                       "startIndex": i, "endIndex": i + 1},
-            "properties": {"pixelSize": new}, "fields": "pixelSize"}})
+            "properties": {"pixelSize": final[i]}, "fields": "pixelSize"}})
 
-    if merged:
-        where = ", ".join(f"{col_letter(m['startColumnIndex'])}{m['startRowIndex'] + 1}:"
-                          f"{col_letter(m['endColumnIndex'] - 1)}{m['endRowIndex']}" for m in merged[:6])
-        print(f"\nWARNING: {len(merged)} merged range(s) inside the measured rows ({where}"
-              f"{', …' if len(merged) > 6 else ''}). Sheets charges a merged cell's whole width to its "
-              f"first column, so those columns read too wide. Measure each table separately with "
-              f"--rows, or check these columns by eye.")
+    if merges:
+        print(f"\nMerged cells in the data rows (left out when sizing the columns they span):\n"
+              f"{'Range':<12}{'Text':<28}{'Needs':>6}{'Has':>6}  Verdict")
+        for m, need in zip(merges, merge_px):
+            text = text_at(m["startRowIndex"], m["startColumnIndex"]).replace("\n", " ")
+            text = text if len(text) <= 26 else text[:25] + "…"
+            has = sum(final[m["startColumnIndex"]:m["endColumnIndex"]])
+            verdict = "fits" if need <= has else (f"{need - has}px TOO WIDE: wrap or shorten the text, "
+                                                  f"or merge it over more columns")
+            print(f"{a1_range(m):<12}{text:<28}{need:>6}{has:>6}  {verdict}")
 
     if args.apply:
         sheets.batch_update(updates)
-        print(f"\nApplied {len(updates)} column widths. Now fix every header that is not "
-              f"'fits', then look at the tab in a browser.")
+        print(f"\nApplied {len(updates)} column widths. Now fix every header and merged cell that is "
+              f"not 'fits', then look at the tab in a browser.")
     else:
         print("\nDry run: nothing changed. Re-run with --apply to set the 'New' widths.")
     return 0
@@ -301,7 +369,7 @@ DATE_AS_TEXT = re.compile(r"^\s*(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})(\b.*
 LIST_SEPARATOR = re.compile(r",\s|;\s|\s/\s|\n")
 
 LINT_FIELDS = (
-    "sheets(properties,bandedRanges.range,conditionalFormats.booleanRule.condition,"
+    "sheets(properties,merges,bandedRanges.range,conditionalFormats.booleanRule.condition,"
     "data(columnMetadata(pixelSize,hiddenByUser),rowMetadata(pixelSize,hiddenByUser,hiddenByFilter),"
     "rowData.values(formattedValue,effectiveValue,"
     "effectiveFormat(numberFormat,horizontalAlignment,verticalAlignment,wrapStrategy))))"
@@ -366,6 +434,15 @@ def lint_sheet(sheet: dict, header_row_arg: int | None) -> list[str]:
             if len(text) > 100:
                 findings.append(f"FREEZE: {col_letter(j)}{i + 1} holds a {len(text)}-char "
                                 f"paragraph inside the frozen section")
+    # A title overflowing out of a frozen column is cut at the freeze line.
+    frozen_cols = grid.get("frozenColumnCount", 0)
+    for i, r in enumerate(rows[:header_row - 1]):
+        for j, c in enumerate(r[:frozen_cols]):
+            right_empty = j + 1 >= len(r) or not r[j + 1].get("formattedValue")
+            if c.get("formattedValue") and right_empty:
+                findings.append(f"FREEZE: title in {col_letter(j)}{i + 1} is inside the {frozen_cols} frozen "
+                                f"column(s), so its overflow is cut at the freeze line; put it in "
+                                f"{col_letter(frozen_cols)}{i + 1}, the first non-frozen column")
 
     # --- striping -----------------------------------------------------------
     if last_row - header_row >= 3 and not has_striping(sheet):
@@ -375,11 +452,24 @@ def lint_sheet(sheet: dict, header_row_arg: int | None) -> list[str]:
     body = rows[header_row:last_row]
     headers = rows[header_row - 1] if header_row - 1 < len(rows) else []
     valign_bad = 0
+    # Text merged across several columns (a section label, a note standing in for
+    # split values) belongs to no single column, so the column checks skip it.
+    spanning = {(r, c) for m in sheet.get("merges", []) if m["endColumnIndex"] - m["startColumnIndex"] > 1
+                for r in range(m["startRowIndex"], m["endRowIndex"])
+                for c in range(m["startColumnIndex"], m["endColumnIndex"])}
+    # A column holding one repeated symbol ("×", "±", "@") joins two number columns;
+    # the number to its right may sit left-aligned against it.
+    joiner_cols = set()
+    for j in range(last_col):
+        symbols = {r[j]["formattedValue"] for i, r in enumerate(body)
+                   if j < len(r) and r[j].get("formattedValue") and (header_row + i, j) not in spanning}
+        if len(symbols) == 1 and len(next(iter(symbols))) <= 2 and not next(iter(symbols)).isalnum():
+            joiner_cols.add(j)
     for j in range(last_col):
         name = headers[j].get("formattedValue", "") if j < len(headers) else ""
         label = f"{col_letter(j)} ({name.strip()[:24]!r})" if name.strip() else col_letter(j)
         cells = [(header_row + 1 + i, r[j]) for i, r in enumerate(body)
-                 if j < len(r) and r[j].get("formattedValue")]
+                 if j < len(r) and r[j].get("formattedValue") and (header_row + i, j) not in spanning]
         if not cells:
             continue
 
@@ -425,8 +515,11 @@ def lint_sheet(sheet: dict, header_row_arg: int | None) -> list[str]:
                     findings.append(f"FORMAT: {label}: no explicit number format and values show "
                                     f"{sorted(d for d in decs if d is not None)} decimal places, "
                                     f"so decimal points will not line up")
-            misaligned = [(r, c) for r, c in numbers if fmt(c, "horizontalAlignment") in ("LEFT", "CENTER")]
-            if misaligned:
+            allowed = {"RIGHT", None} | ({"LEFT"} if j - 1 in joiner_cols else set())
+            centred = {fmt(c, "horizontalAlignment") for _, c in numbers} == {"CENTER"}
+            narrow = all(len(c["formattedValue"]) <= 2 for _, c in numbers)
+            misaligned = [(r, c) for r, c in numbers if fmt(c, "horizontalAlignment") not in allowed]
+            if misaligned and not (centred and narrow):
                 findings.append(f"ALIGN: {label}: {where(misaligned)} numeric but not right-aligned")
             if texts and len(texts) < len(numbers):
                 findings.append(f"TYPE: {label}: mostly numbers but {where(texts)} are text "
@@ -488,7 +581,7 @@ def main() -> int:
         p.add_argument("--gid", type=int, help="tab gid (sheetId)")
         p.add_argument("--header-row", type=int,
                        help="1-based row holding the column headers (default: last frozen row, else 1)")
-        p.add_argument("--token-file", help="OAuth authorized-user JSON (default: $GSHEETS_TOKEN_FILE)")
+        p.add_argument("--token-file", help="service-account key or OAuth authorized-user JSON (default: $GSHEETS_TOKEN_FILE)")
 
     p_lint = sub.add_parser("lint", help="read-only layout/data checks (all tabs by default)")
     common(p_lint)

@@ -19,8 +19,10 @@ legends or paragraphs.
 
 ## Order of work
 
-1. **Read first.** On an existing spreadsheet read the current contents and
-   formatting, including any manual edits the owner made (see Existing sheets).
+1. **Get the spreadsheet.** A new one is created under the owner's Google
+   account, not by a service account (see New spreadsheets). On an existing
+   one, read the current contents and formatting first, including any manual
+   edits the owner made (see Existing sheets).
 2. **Structure** - one fact per cell, one kind of fact per column (see Data).
 3. **Write values** with `valueInputOption=USER_ENTERED` so numbers and dates
    become real numbers and dates; derived values as formulas.
@@ -33,8 +35,9 @@ legends or paragraphs.
 10. **Lint**: `sheetcheck.py lint ...` until it reports 0 findings.
 11. **Look at every tab in a browser** (see Visual inspection). Fix, and
     repeat from the step that was wrong.
+12. **End with the link** (see Finishing).
 
-Any later change to the data or formats means repeating 8-11.
+Any later change to the data or formats means repeating 8-12.
 
 ## Data
 
@@ -63,6 +66,9 @@ every table and tab, and one consistent short name for each thing.
 
 - **Frozen rows contain the sheet title and the header row(s), nothing else.**
   No paragraphs, legend or instructions. Usually 1-2 rows.
+- **With frozen columns, the title goes in the first non-frozen column**
+  (column B when one column is frozen). Text overflowing out of a frozen
+  column is cut off at the freeze line.
 - **No explainer text or legends** on the sheet. Put a definition in a cell
   note on the header it explains. If a table needs a paragraph to be
   understood, restructure the table.
@@ -82,20 +88,52 @@ every table and tab, and one consistent short name for each thing.
   everywhere that category appears. Distinguish predicted or estimated values
   from actual ones (text colour), and keep them in separate columns.
 - **Row heights fit their contents** - nothing cut off, no rows left tall.
+  Aim for rows of one line, two at most: split a wrapping cell into more
+  columns (`eth0` / `wlan0`, `type` / `size`) and give notes a smaller font
+  before letting rows grow.
+- **Fixed-width font** for values compared character by character: serial
+  numbers, MAC addresses, hashes, IDs, port names.
+- **Rows are in a deliberate order** - the owner's stated sort keys, else the
+  natural reading order - and columns too, most important first.
 - **Trim**: no empty rows below the data, no empty columns to its right.
 - **Tab names** are short, consistent with each other, and say what is on the
   tab.
 
-### Several tables on one tab
+## Splitting and merging cells
 
-Tables stacked on one tab share its columns, so one table's widths wreck
-another's. Mixed content is not an excuse for wrong widths: **split the grid
-into finer columns and merge cells** so every table gets the widths its own
-data needs. Measure each table on its own with `fit-columns --rows FIRST:LAST`.
+A column can only be one width and one alignment. When the content wants
+something else, do not compromise the widths: **split the grid into finer
+columns, then merge cells back together** wherever a wider cell is needed.
+Reach for this whenever a column is wide only because of a few cells, or
+values will not line up.
 
-Sheets charges a merged cell's entire width to its *first* column when
-auto-sizing (a long merged title turned a 73px column into 423px in testing),
-so merged cells must be kept out of whatever is being measured.
+| Situation | Split into | Merge back |
+|---|---|---|
+| A composite value: `1,420 × 980 µm`, `200 µm ± 10`, `28 @ $7k`, `36 (90%)` | one column per part, the joiner (`×`, `±`, `@`) in its own narrow centred column | the group header across the parts; any text that replaces the whole value ("not specified") |
+| A column that mixes numbers with the odd text cell | - | the text across the neighbouring columns, so the number column keeps the width of its numbers |
+| Several tables stacked on one tab, each needing different widths | a grid fine enough for the narrowest column of any table | each table's cells across as many grid columns as its own data needs |
+| A label next to a total | label and number in separate cells | the label across the columns to its left |
+| A value that belongs to several rows (site, host, group) | - | vertically, down all the rows it applies to |
+| A diagram drawn in cells beside a table | rows and columns at the diagram's exact pitch | the table's cells across whole numbers of diagram columns |
+| Parts that must look symmetrical | - | set the matching columns to the same width explicitly |
+
+Rules that keep this workable:
+
+- Every number stays a real number in its own cell: right-align the part
+  before a joiner, centre the joiner, left-align the part after it.
+- Merge within one table only. Never merge across a table's outer border.
+- A merged cell is centred or left-aligned over its span on purpose, and its
+  text must fit the span: `fit-columns` lists each merged cell with the
+  width it needs and the width it has.
+- Merged cells break sorting, filtering and freezing across them. Use them in
+  headers, labels and presentation tables; keep a tab that people sort or
+  that a script reads back as one plain row per record.
+- Sheets charges a merged cell's entire width to its *first* column when
+  auto-sizing (a long merged title turned a 73px column into 423px in
+  testing). `fit-columns` leaves merged cells out when sizing the columns
+  they span; never run the UI's "fit to data" over them.
+- Measure stacked tables one at a time: `fit-columns --rows FIRST:LAST`, then
+  choose grid widths that satisfy all of them.
 
 ## Column widths: from the data, never from the header
 
@@ -105,7 +143,7 @@ cells. Do not use them on the real tab. Use the tool in this skill's
 directory:
 
 ```bash
-export GSHEETS_TOKEN_FILE=path/to/oauth-authorized-user.json   # scope: spreadsheets
+export GSHEETS_TOKEN_FILE=path/to/key.json   # service-account key, or OAuth authorized-user JSON
 uv run sheetcheck.py fit-columns SPREADSHEET_ID_OR_URL --sheet 'Tab name'          # dry run
 uv run sheetcheck.py fit-columns SPREADSHEET_ID_OR_URL --sheet 'Tab name' --apply
 ```
@@ -120,9 +158,18 @@ last frozen row; `--rows FIRST:LAST` to measure one table. `--max` (default
 decision, not an accident. Bold and larger fonts are measured as formatted,
 so apply the formatting first.
 
-Other credentials (a service account, an MCP connector without
-`batchUpdate`): follow the same method by hand - measure the data rows on a
-hidden scratch copy with no header, then set the widths on the real tab.
+Cells merged across columns are left out when sizing those columns and
+reported in their own table: the width each one's text needs against the
+combined width of the columns it spans. A header merged over several columns
+is judged against all of them.
+
+**Widths the owner set by hand win.** If the owner has adjusted columns on a
+tab, read the current widths back and keep them (and make them the defaults
+in whatever script builds the tab) rather than re-fitting over them.
+
+No way to run the tool (an MCP connector without `batchUpdate`)? Follow the
+same method by hand: measure the data rows on a hidden scratch copy with no
+header, then set the widths on the real tab.
 
 ## Headers: fit the column you were given
 
@@ -194,10 +241,31 @@ shows neither frozen panes nor overflow as the owner sees them. If no
 signed-in browser is available, say plainly that the sheet has not been
 visually verified, and what you looked at instead.
 
+## New spreadsheets
+
+**Create the spreadsheet under the owner's Google account, then share it with
+the service account** - almost never the other way round. A service account
+usually has no Drive storage quota, so its create call fails, and a file it
+does manage to create lives in a Drive the owner cannot see.
+
+1. Create the blank spreadsheet as the owner: the owner's OAuth credentials,
+   or a Google Drive / Sheets connector signed in as them.
+2. Share it with the service account's `client_email` (from its key file) as
+   an Editor.
+3. Do all further work as the service account, on that one spreadsheet. Record
+   its ID where the script that maintains it can find it.
+
+If you cannot create or share it as the owner, or the service account gets a
+403 on a sheet it needs, stop and ask the owner to create or share it, giving
+them the `client_email`. Do not work around it.
+
 ## Existing sheets
 
 - **Reuse the spreadsheet.** Update the same spreadsheet and the same tabs so
-  URLs and `gid`s stay stable. Never create a new spreadsheet per run.
+  URLs and `gid`s stay stable. Never create a new spreadsheet per run, and
+  never delete and re-add a tab to rebuild it: replace its contents.
+- **Format in place through the API.** Not by building an `.xlsx` and
+  uploading or importing it.
 - **Preserve the owner's manual edits.** Read values and formats before
   writing; change only what was asked. If the owner formatted one table or
   tab by hand, that is the style to match on the others.
@@ -206,7 +274,23 @@ visually verified, and what you looked at instead.
 - Hidden tabs are obsolete unless told otherwise: do not read data from them.
 - The work lives in the spreadsheet: charts and summaries are built there,
   not as local images or scripts' console output.
-- Images go in cells as real in-cell images, not `=IMAGE()` of an external URL.
+- Images go in cells as real in-cell images, not `=IMAGE()` of an external
+  URL. The Sheets API cannot place them; use an Apps Script bound and scoped
+  to that one spreadsheet.
+- Summaries and totals are live formulas or pivot tables over the data tab,
+  so they follow edits the owner makes by hand.
+
+## Finishing
+
+The **last thing** in your final message, every time you finish work on a
+spreadsheet, is its full URL on a line of its own:
+
+```
+https://docs.google.com/spreadsheets/d/<spreadsheet id>/edit#gid=<tab gid>
+```
+
+The complete `https://` link to the tab you worked on - not the ID alone, not
+a short link, not "the same link as before", and nothing after it.
 
 ## Reference
 
@@ -225,6 +309,10 @@ auto-fit and hidden scratch tabs.
 | Writing with `RAW`, or prefixing values with `'` | `USER_ENTERED`, then set the number format |
 | Units, `~` or "approx" typed into number cells | Number in the cell; unit in the format or header; qualifiers in a note |
 | Wide column because one table's text sits above another table's numbers | Split the grid and merge cells |
+| `W × H` or `value ± error` typed into one cell | One column per part, joiner in its own column, merged group header |
+| Title in A1 with column A frozen, cut off at the freeze line | Title in the first non-frozen column |
+| Service account creates the spreadsheet | Owner's account creates it and shares it with the service account |
+| Final message ends with a summary and no link | Full `https://docs.google.com/spreadsheets/d/...` URL as the last line |
 | Explanatory paragraph or legend above or below the table | Cell notes; restructure so it is not needed |
 | Tinted backgrounds replacing the stripes | Stripe first; tints alternate too |
 | Clearing a tab and rebuilding it over 30 seconds | Hidden scratch tab, then one `batchUpdate` |

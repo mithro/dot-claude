@@ -116,9 +116,25 @@ Write the values as `TRUE` / `FALSE`, and centre the column.
     "mergeType": "MERGE_ALL"}}
 ```
 
+`MERGE_ALL` makes one cell of the range; `MERGE_COLUMNS` merges each column of
+the range downwards (a value shared by several rows); `MERGE_ROWS` merges each
+row across. Only the top-left cell's value survives a merge.
+
 Freezing columns that contain only part of a merged cell is rejected, so a
-merged title or group header limits `frozenColumnCount`. Keep merged cells out of
-anything being auto-sized: their whole width is charged to the first column.
+merged title or group header limits `frozenColumnCount`: with frozen columns,
+start the title and any merged header in the first non-frozen column. Keep
+merged cells out of anything being auto-sized: their whole width is charged
+to the first column.
+
+## Fonts
+
+```python
+# Fixed-width for serial numbers, MAC addresses, IDs
+{"repeatCell": {"range": {"sheetId": G, "startRowIndex": 2,
+                          "startColumnIndex": 3, "endColumnIndex": 4},
+    "cell": {"userEnteredFormat": {"textFormat": {"fontFamily": "Roboto Mono"}}},
+    "fields": "userEnteredFormat.textFormat.fontFamily"}}
+```
 
 ## Shortened header that keeps its full name
 
