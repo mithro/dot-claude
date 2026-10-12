@@ -73,8 +73,15 @@ every table and tab, and one consistent short name for each thing.
   note on the header it explains. If a table needs a paragraph to be
   understood, restructure the table.
 - **Always zebra-stripe** every table (`addBanding`), visibly, not subtly.
-  Highlighted or colour-coded rows still alternate (light / lighter tint).
   No stray banding left over outside a table.
+- **A background colour never flattens the stripes.** A cell's own
+  background hides the banding beneath it, so one fill colour over several
+  rows erases the alternation. Every background you apply - highlight,
+  status colour, category tint, conditional format - comes as **two shades
+  of the same hue**, a lighter and a darker one, following the same odd/even
+  rows as the stripes: rows turned red are light red / darker red, never one
+  flat red. Both shades stay clearly that colour, and clearly different from
+  each other (see `recipes.md`, Coloured rows that keep their stripes).
 - **Borders divide the logical groups**: around each table, between column
   groups, above and around totals. Not a full grid on every cell by default.
   An empty spacer column or row may separate groups; it touches no table.
@@ -226,6 +233,7 @@ Check, and fix anything that fails:
 - [ ] Alignment is right for each column and never mixed within one
 - [ ] Rows are the right height: nothing cut off, nothing needlessly tall
 - [ ] Stripes cover exactly each table; no stray formatting beyond it
+- [ ] Coloured rows and cells still alternate: two shades, in step with the stripes
 - [ ] Every border is where it was intended, same weight on all sides of a box
 - [ ] The frozen section is the title + header only, and stays put when scrolling
 - [ ] The grid ends where the data ends
@@ -296,7 +304,7 @@ a short link, not "the same link as before", and nothing after it.
 
 `recipes.md` in this directory has tested `batchUpdate` requests for: trim +
 freeze, alignment, number formats (units, scaled money, percent, dates),
-banding, borders, checkboxes, merged group headers, header notes, row-height
+banding, coloured rows that keep their stripes, borders, checkboxes, merged group headers, header notes, row-height
 auto-fit and hidden scratch tabs.
 
 ## Common mistakes
@@ -315,6 +323,7 @@ auto-fit and hidden scratch tabs.
 | Final message ends with a summary and no link | Full `https://docs.google.com/spreadsheets/d/...` URL as the last line |
 | Explanatory paragraph or legend above or below the table | Cell notes; restructure so it is not needed |
 | Tinted backgrounds replacing the stripes | Stripe first; tints alternate too |
+| One flat fill colour (all-red failed rows) over a striped table | Two shades of that colour, alternating with the stripes |
 | Clearing a tab and rebuilding it over 30 seconds | Hidden scratch tab, then one `batchUpdate` |
 | Reporting "done" after the API calls returned 200 | Lint, then look at it in the browser |
 | Checking a PDF export and calling it inspected | Browser, or say it was not visually verified |

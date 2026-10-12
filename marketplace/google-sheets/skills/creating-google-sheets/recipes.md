@@ -76,6 +76,41 @@ background colors"). When rebuilding a tab, list the existing ones
 (`sheets.bandedRanges`) and `deleteBanding` each by its `bandedRangeId` first;
 that also removes stale stripes left outside the new table.
 
+## Coloured rows that keep their stripes
+
+A cell's own `backgroundColor`, and a conditional format's, both paint over
+the banding. Colour a set of rows with one value and the stripes are gone
+there. Use two shades of the hue, chosen by the same row parity as the
+banding.
+
+Rule-driven colour (status, threshold): two conditional format rules, one per
+parity. They follow the row's position, so they stay in step after a sort or
+filter.
+
+```python
+light_red = {"red": 0.98, "green": 0.86, "blue": 0.85}
+dark_red  = {"red": 0.94, "green": 0.72, "blue": 0.70}
+table = {"sheetId": G, "startRowIndex": 2, "endRowIndex": n_rows,
+         "startColumnIndex": 0, "endColumnIndex": n_cols}
+
+def rule(parity, colour):   # formula is written for the range's first row (row 3)
+    return {"addConditionalFormatRule": {"index": 0, "rule": {
+        "ranges": [table],
+        "booleanRule": {
+            "condition": {"type": "CUSTOM_FORMULA", "values": [
+                {"userEnteredValue": f'=AND($E3="FAIL",{parity}(ROW()))'}]},
+            "format": {"backgroundColor": colour}}}}}
+
+requests = [rule("ISODD", light_red), rule("ISEVEN", dark_red)]
+```
+
+Give the lighter shade to the rows that have the lighter band; check which
+parity that is on the tab rather than assuming.
+
+Fixed colour (a category, a hand-picked highlight): one `repeatCell` per row
+with `userEnteredFormat.backgroundColor`, picking the shade from that row's
+parity. These fills move with their rows, so re-apply them after a sort.
+
 ## Borders
 
 ```python
