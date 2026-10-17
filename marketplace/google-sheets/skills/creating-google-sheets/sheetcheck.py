@@ -248,12 +248,13 @@ def header_verdict(header: str, header_px: int, width: int) -> str:
     px_per_char = header_px / max(len(header), 1)
     words = header.split()
     longest_word_px = max(len(w) for w in words) * px_per_char
+    fit_chars = int(width / px_per_char)
+    verdict = f"SHORTEN header to <= ~{fit_chars} chars (full name in the note)"
     if len(words) > 1 and longest_word_px <= width:
         lines = -(-header_px // width) + (1 if len(words) > 2 else 0)
-        if lines <= 3:
-            return f"WRAP header (~{min(lines, len(words))} lines)"
-    fit_chars = int(width / px_per_char)
-    return f"SHORTEN header to <= ~{fit_chars} chars/line (or smaller font / rotate)"
+        if lines <= 2:
+            verdict += f", else WRAP (~{min(lines, len(words))} lines)"
+    return verdict
 
 
 def a1_range(m: dict) -> str:
@@ -371,9 +372,13 @@ LIST_SEPARATOR = re.compile(r",\s|;\s|\s/\s|\n")
 LINT_FIELDS = (
     "sheets(properties,merges,bandedRanges.range,conditionalFormats.booleanRule.condition,"
     "data(columnMetadata(pixelSize,hiddenByUser),rowMetadata(pixelSize,hiddenByUser,hiddenByFilter),"
-    "rowData.values(formattedValue,effectiveValue,"
-    "effectiveFormat(numberFormat,horizontalAlignment,verticalAlignment,wrapStrategy))))"
+    "rowData.values(formattedValue,effectiveValue,note,"
+    "effectiveFormat(numberFormat,horizontalAlignment,verticalAlignment,wrapStrategy,"
+    "textFormat.fontSize))))"
 )
+DEFAULT_COL_PX = 100
+HEADER_PX_PER_PT = 0.55   # lower bound of the average glyph width, per point of font size
+HEADER_PADDING_PX = 6
 
 
 def has_striping(sheet: dict) -> bool:
@@ -443,6 +448,34 @@ def lint_sheet(sheet: dict, header_row_arg: int | None) -> list[str]:
                 findings.append(f"FREEZE: title in {col_letter(j)}{i + 1} is inside the {frozen_cols} frozen "
                                 f"column(s), so its overflow is cut at the freeze line; put it in "
                                 f"{col_letter(frozen_cols)}{i + 1}, the first non-frozen column")
+
+    # --- header row: short label in the cell, full name + description in its note
+    col_meta = data.get("columnMetadata", [])
+    header_cells = rows[header_row - 1] if header_row - 1 < len(rows) else []
+    # A header merged across columns has all of their widths to fit in.
+    header_merge = {m["startColumnIndex"]: m["endColumnIndex"] for m in sheet.get("merges", [])
+                    if m["startRowIndex"] <= header_row - 1 < m["endRowIndex"]}
+    no_note, too_long = [], []
+    for j, c in enumerate(header_cells):
+        text = c.get("formattedValue", "")
+        if not text:
+            continue
+        where = f"{col_letter(j)}{header_row}"
+        if not c.get("note", "").strip():
+            no_note.append(where)
+        width = sum(col_meta[k].get("pixelSize", DEFAULT_COL_PX) if k < len(col_meta) else DEFAULT_COL_PX
+                    for k in range(j, header_merge.get(j, j + 1)))
+        pt = c.get("effectiveFormat", {}).get("textFormat", {}).get("fontSize", 10)
+        px_per_char = HEADER_PX_PER_PT * pt
+        need = len(text) * px_per_char + HEADER_PADDING_PX
+        if need > width:
+            fit = int((width - HEADER_PADDING_PX) / px_per_char)
+            too_long.append(f"{where} {text!r} needs ~{int(need)}px of {width}px (<= ~{fit} chars fit)")
+    if no_note:
+        findings.append(f"HEADER: no note on {', '.join(no_note)}; put the full column name and "
+                        f"description in each header's note")
+    for item in too_long:
+        findings.append(f"HEADER: {item}: shorten the label, full name in the note")
 
     # --- striping -----------------------------------------------------------
     if last_row - header_row >= 3 and not has_striping(sheet):
