@@ -11,6 +11,10 @@ description: Use when creating, populating, restructuring, reformatting or tidyi
 as its *values* need. A header that does not fit that width gets wrapped,
 shortened or shrunk. Headers **never** set the width.
 
+**The header cell is a label; the note on it is the documentation.** The cell
+holds the shortest name that tells the column apart; its note holds the full
+name and the description.
+
 **A sheet is not done until it has been looked at in a browser.** API calls
 succeeding says nothing about how it renders.
 
@@ -31,7 +35,9 @@ legends or paragraphs.
 6. **Zebra stripes, borders, emphasis** (see Layout).
 7. **Trim** the grid to the used rows and columns.
 8. **Size columns from the data**: `sheetcheck.py fit-columns ... --apply`.
-9. **Make each header fit** the width its column was given (see Headers).
+9. **Make each header fit** the width its column was given: the shortest
+   label in the cell, the full name and description in its note (see
+   Headers).
 10. **Lint**: `sheetcheck.py lint ...` until it reports 0 findings.
 11. **Look at every tab in a browser** (see Visual inspection). Fix, and
     repeat from the step that was wrong.
@@ -178,25 +184,53 @@ No way to run the tool (an MCP connector without `batchUpdate`)? Follow the
 same method by hand: measure the data rows on a hidden scratch copy with no
 header, then set the widths on the real tab.
 
-## Headers: fit the column you were given
+## Headers: shortest label in the cell, everything else in the note
 
-For every header the tool does not mark `fits`, in this order of preference:
+A header cell and its note are the two halves of one header, and both are
+always written:
 
-1. **Wrap** on word boundaries (`wrapStrategy: WRAP`), up to 2-3 lines.
-2. **Drop words** the title, group header or neighbours already imply:
-   `Purchase Price (AUD)` -> `Price (AUD)`; `Number of Ethernet Ports Available` -> `Ports`.
-   A merged group header over several columns ("Wafers for X chips") lets
-   each column header shrink to its distinguishing value (`50`, `1,000`).
-3. **Abbreviate**, using an abbreviation the reader already knows. A unit
-   alone is a fine header (`Mbit/s`). Never invent jargon.
-4. **Smaller font** for that header, down to 6pt.
-5. **Rotate** the header text for very narrow columns (ticks, flags).
-6. Still too small to read? Raise the font size of everything else, so the
-   owner can zoom out. The column still does not get wider.
+- **The header cell** holds the shortest label that tells this column apart
+  from its neighbours, on **one line** at the width the data gave the
+  column: a word, an abbreviation the reader already knows, or the unit
+  alone (`W`, `Mbit/s`, `AUD`). Words that the sheet title, a group header
+  or the neighbouring columns already imply are dropped.
+- **The note** on that header cell holds the full column name on its first
+  line, then a blank line, then the description: what the value is, its
+  unit, how and when it was measured or where it came from, and any caveat.
+  Everything the owner said about the column that is not in the cell goes
+  here, so shortening loses nothing. **Every header gets a note**, including
+  headers that fit untouched: the note is where the description lives, not a
+  fallback for shortened names.
 
-Whenever the visible header loses information, put the full name in a **cell
-note** on the header. Then re-run `fit-columns` (dry run): every header should
-read `fits` or the wrap you intended.
+Shrink in this order, stopping as soon as the header fits on one line:
+
+1. **Drop words** the title, group header or neighbours imply:
+   `Purchase price in AUD including GST` -> `Price`;
+   `Number of Ethernet ports available` -> `Ports`.
+2. **Abbreviate, or keep only the unit**: `Power consumption at idle in
+   watts` -> `W`. Only abbreviations the reader already knows; never invent
+   jargon.
+3. **Move the shared part into a merged group header** over the columns that
+   share it: `Power (W)` over `idle` and `load`; `Wafers for X chips` over
+   `50` and `1,000`.
+4. **Wrap** to two lines (`wrapStrategy: WRAP`) when no one-line label tells
+   the column apart.
+5. **Smaller font** for that header, down to 6pt.
+6. **Rotate** the header text for very narrow columns (ticks, flags).
+7. Still unreadable? Raise the font size of everything else, so the owner
+   can zoom out. The column still does not get wider.
+
+Then re-run `fit-columns` (dry run) until every header reads `fits`, and
+`lint` until it reports no `HEADER` findings.
+
+A 40px column of idle power readings, described by the owner as "Power
+consumption at idle in watts: read from the smart plug, averaged over 10
+minutes with the device idle at the login prompt":
+
+| | Wrong | Right |
+|---|---|---|
+| Header cell | `Idle W`, wrapped onto two lines | `W` (or `idle` under a merged `Power (W)` group header) |
+| Note | none, or `Power consumption at idle in watts` alone | `Power consumption at idle in watts` + blank line + `Read from the smart plug, averaged over 10 minutes with the device idle at the login prompt.` |
 
 ## Lint
 
@@ -204,10 +238,11 @@ read `fits` or the wrap you intended.
 uv run sheetcheck.py lint SPREADSHEET_ID_OR_URL [--sheet 'Tab name']
 ```
 
-Read-only. Reports `TRIM`, `FREEZE`, `STRIPE`, `TYPE` (numbers, dates and
-units stored as text; mixed columns), `FORMAT` (mixed or missing number
-formats), `ALIGN` and `PROSE` (paragraphs, delimited lists) findings with
-column and row numbers. It assumes one table per tab; on a multi-table tab
+Read-only. Reports `TRIM`, `FREEZE`, `STRIPE`, `HEADER` (a header cell with
+no note, or whose text cannot fit its column on one line), `TYPE` (numbers,
+dates and units stored as text; mixed columns), `FORMAT` (mixed or missing
+number formats), `ALIGN` and `PROSE` (paragraphs, delimited lists) findings
+with column and row numbers. It assumes one table per tab; on a multi-table tab
 read its findings with that in mind. Fix the sheet rather than arguing with a
 finding; if one is a genuine false positive, say so in your report.
 
@@ -312,7 +347,10 @@ auto-fit and hidden scratch tabs.
 | Mistake | Fix |
 |---|---|
 | Auto-resizing the real tab, so a long header or merged title sets the width | `fit-columns`, then make the header fit |
-| Widening a column because its header was clipped | Wrap / shorten / shrink the header instead |
+| Widening a column because its header was clipped | Shorten the header; its full name goes in the note |
+| Header wrapped onto two lines when a one-word label would do | Shortest label in the cell; the rest in its note |
+| Notes only on the headers that were shortened | Every header has a note: full name, then description |
+| Description, unit or method typed into the header text | The header is the label; the note is the description |
 | All columns left at the default 100px | `fit-columns` on every tab |
 | Writing with `RAW`, or prefixing values with `'` | `USER_ENTERED`, then set the number format |
 | Units, `~` or "approx" typed into number cells | Number in the cell; unit in the format or header; qualifiers in a note |

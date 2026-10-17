@@ -171,21 +171,34 @@ to the first column.
     "fields": "userEnteredFormat.textFormat.fontFamily"}}
 ```
 
-## Shortened header that keeps its full name
+## Header: short label in the cell, full name and description in its note
 
 ```python
-{"updateCells": {"range": {"sheetId": G, "startRowIndex": 1, "endRowIndex": 2,
-                           "startColumnIndex": 1, "endColumnIndex": 2},
-    "rows": [{"values": [{"userEnteredValue": {"stringValue": "Ports"},
-                          "note": "Number of Ethernet Ports Available"}]}],
-    "fields": "userEnteredValue,note"}}
+def header(col, label, name, description):
+    """One header cell: the label the reader sees, and a note holding the
+    full column name on its first line and the description after a blank line."""
+    return {"updateCells": {"range": {"sheetId": G, "startRowIndex": 1, "endRowIndex": 2,
+                                      "startColumnIndex": col, "endColumnIndex": col + 1},
+        "rows": [{"values": [{"userEnteredValue": {"stringValue": label},
+                              "note": f"{name}\n\n{description}"}]}],
+        "fields": "userEnteredValue,note"}}
 
-# Wrapped, bold, smaller header row
-{"repeatCell": {"range": {"sheetId": G, "startRowIndex": 1, "endRowIndex": 2},
-    "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP",
-                                   "textFormat": {"bold": True, "fontSize": 9}}},
-    "fields": "userEnteredFormat(wrapStrategy,textFormat)"}}
+requests = [
+    header(1, "Ports", "Number of Ethernet ports available on the device",
+           "Physical RJ45 ports as reported by `lshw -class network`, not counting USB adapters."),
+    header(3, "W", "Power consumption at idle in watts",
+           "Read from the smart plug, averaged over 10 minutes with the device idle at the login prompt."),
+    # Bold, smaller header row. WRAP only on a header that has no one-line label.
+    {"repeatCell": {"range": {"sheetId": G, "startRowIndex": 1, "endRowIndex": 2},
+        "cell": {"userEnteredFormat": {"textFormat": {"bold": True, "fontSize": 9}}},
+        "fields": "userEnteredFormat.textFormat"}},
+]
 ```
+
+A note is plain text: `\n` makes a line, markdown does nothing. It shows on
+hover and as a black triangle in the cell's corner, and `spreadsheets.get`
+returns it as `note` on the cell, which is how `lint` checks for it. Writing
+`"fields": "note"` alone changes the note and leaves the value.
 
 ## Row heights
 
