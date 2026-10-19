@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """PreToolUse hook: block file creation in /tmp.
 
-Claude should use a project-local tmp/ directory instead of /tmp so it doesn't
-trigger permission prompts. This hook enforces that rule by denying clear
-file-creation patterns targeting /tmp and silently allowing ambiguous or
-read-only cases (letting the normal permission system handle those).
+Claude should use a project-local tmp/ directory instead of /tmp, which is
+often a RAM-backed tmpfs and triggers permission prompts. This hook enforces
+that rule by denying clear file-creation patterns targeting /tmp -- including
+indirect ones (VAR=/tmp/..., --out /tmp/..., -v /tmp/...:, cd /tmp/...) -- and
+silently allowing ambiguous or read-only cases (letting the normal permission
+system handle those).
 """
 
 import json
@@ -28,6 +30,33 @@ MKDIR_TMP = re.compile(r'\bmkdir\s+(-[a-zA-Z]+\s+)*"?/tmp/')
 # touch /tmp/... (with optional flags)
 TOUCH_TMP = re.compile(r'\btouch\s+(-[a-zA-Z]+\s+)*"?/tmp/')
 
+# --- Indirect writes: a /tmp path handed to something that writes there later ---
+
+# VAR=/tmp/..., export TMPDIR=/tmp, OUT="/tmp/run1" ./build.sh
+ASSIGN_TMP = re.compile(
+    r'(?:^|[\s;&|(])(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=["\']?/tmp(?:/|["\'\s;&|)]|$)'
+)
+
+# --out /tmp/..., --progress-dir=/tmp/..., -o /tmp/a.out
+# (long options only when named like an output location, or in --opt=/tmp form,
+# so read-only `ls -la /tmp/x` / `du -sh /tmp/x` stay allowed; --exclude,
+# --include and --filter take match patterns, not paths to write)
+OPTION_TO_TMP = re.compile(
+    r'--[\w-]*(?:out|dir|resume|progress|work|cache|log|dest|target|prefix|tmp|temp|save|root|path)'
+    r'[\w-]*\s+["\']?/tmp/'
+    r'|--(?!(?:exclude|include|filter)\b)[\w-]+=["\']?/tmp/'
+    r'|(?:^|\s)-o\s*["\']?/tmp/'
+)
+
+# docker/podman -v /tmp/...:/x, --volume=/tmp/...:/x, --mount ...,src=/tmp/...
+MOUNT_FROM_TMP = re.compile(
+    r'(?:\s-v|--volume)[\s=]+["\']?/tmp/[^\s:]*:'
+    r'|--mount[\s=]+\S*(?:src|source)=["\']?/tmp/'
+)
+
+# cd /tmp/... (everything after writes there via relative paths)
+CD_TO_TMP = re.compile(r'\b(?:cd|pushd)\s+["\']?/tmp(?:/|["\'\s;&|)]|$)')
+
 # mktemp detection: present in command
 MKTEMP_PRESENT = re.compile(r'\bmktemp\b')
 # mktemp with -p or --tmpdir pointing to a non-/tmp directory
@@ -39,11 +68,18 @@ BASH_CREATION_PATTERNS = [
     CP_MV_TO_TMP,
     MKDIR_TMP,
     TOUCH_TMP,
+    ASSIGN_TMP,
+    OPTION_TO_TMP,
+    MOUNT_FROM_TMP,
+    CD_TO_TMP,
 ]
 
 DENY_MESSAGE = """\u274c **/tmp creation blocked by hook**
 
-You attempted to create files in `/tmp/`. Use a **project-local directory** instead:
+You attempted to create files in `/tmp/` (or point a tool, variable, mount or `cd` at it). \
+This **includes the harness scratchpad** when the system prompt places it under \
+`/tmp/claude-<uid>/` — that instruction does not override this rule. \
+Use a **project-local directory** instead:
 
 ```python
 import tempfile, os
@@ -60,16 +96,26 @@ mkdir -p ./tmp
 # ALWAYS clean up when done
 ```
 
-**Why:** Using `/tmp` triggers permission prompts and scatters files outside the project. \
-A local `tmp/` directory is automatically accessible and keeps everything contained."""
+**Why:** `/tmp` is often a RAM-backed tmpfs: large scratch output (build trees, \
+images, simulation runs) consumes memory, fills it for every other process, and \
+vanishes on reboot. It also triggers permission prompts and scatters files outside \
+the project. A local `tmp/` directory is on disk, accessible, and contained.
+
+To move Claude Code's own temp dir and the scratchpad off `/tmp`, set \
+`CLAUDE_CODE_TMPDIR` and `TMPDIR` in `~/.claude/settings.json` `env` \
+(keep `<dir>/claude-<uid>` within 44 bytes)."""
 
 
 def make_deny(message):
-    """Return a deny response with the given system message."""
+    """Return a deny response with the given message.
+
+    permissionDecisionReason is what Claude sees; systemMessage is shown to the user.
+    """
     return json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
+            "permissionDecisionReason": message,
         },
         "systemMessage": message,
     })
