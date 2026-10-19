@@ -17,6 +17,25 @@ claude plugin enable my-conventions@mithro-personal
 # etc.
 ```
 
+### Keeping Claude Code off `/tmp`
+
+The hook and conventions only steer the model. Claude Code itself puts its
+per-session temp tree — including the scratchpad the system prompt tells the
+model to use — under `$TMPDIR/claude-<uid>/`, and the Bash tool does not set
+`$TMPDIR` for the commands it runs. On machines where `/tmp` is a RAM-backed
+tmpfs, move both on disk in `~/.claude/settings.json`:
+
+```json
+"env": {
+  "CLAUDE_CODE_TMPDIR": "/home/tim/.claude-tmp",
+  "TMPDIR": "/home/tim/.claude-tmp"
+}
+```
+
+Keep `<dir>/claude-<uid>` within 44 bytes: longer paths overflow the AF_UNIX
+socket limit and child processes silently fall back to `/tmp`. Nothing clears
+this directory on reboot, so add your own retention (e.g. systemd-tmpfiles).
+
 ## Plugins
 
 ### Agents (19)
@@ -52,7 +71,7 @@ Enforcement hooks for SSH, git, and command safety:
 | Plugin | Description |
 |--------|-------------|
 | `hook-allow-ssh` | Auto-allows SSH/scp/rsync to configured hosts (eliminates permission prompts) |
-| `hook-block-tmp-creation` | Blocks file creation in `/tmp/` (use project-local `tmp/`) |
+| `hook-block-tmp-creation` | Blocks file creation in `/tmp/`, incl. indirect use (`VAR=/tmp/…`, `--out /tmp/…`, `-v /tmp/…:`, `cd /tmp`) (use project-local `tmp/`) |
 | `hook-block-stderr-to-null` | Blocks `2>/dev/null` (keep diagnostic output visible) |
 | `hook-block-ssh-hash-hostnames` | Blocks SSH `-H` flag and `HashKnownHosts` (keep known_hosts readable) |
 | `hook-block-ssh-unsafe-options` | Blocks `StrictHostKeyChecking=no` and `UserKnownHostsFile=/dev/null` |
