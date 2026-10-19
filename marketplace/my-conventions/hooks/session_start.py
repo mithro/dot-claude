@@ -27,6 +27,8 @@ These conventions apply to all projects unless overridden by project-specific ru
 - **ALWAYS use SSH for GitHub git operations — NEVER a git credential helper.** Authenticate clone/fetch/push over SSH (`git@github.com:<owner>/<repo>.git`), not HTTPS. The global gitconfig intentionally sets `credential.helper stop`; this is correct — leave it.
   - **DON'T** run `gh auth setup-git`, set `credential.helper`, or add a `!gh auth git-credential` helper for `github.com`. Do not "fix" auth by configuring a credential helper.
   - If a remote is HTTPS (`https://github.com/...`) and auth fails, **convert it to SSH** instead: `git remote set-url origin git@github.com:<owner>/<repo>.git`. Verify SSH works first with `ssh -T git@github.com` (a successful auth prints `Hi <user>!` and exits non-zero — that is expected, not a failure).
+  - **HTTPS is BANNED for all git transport.** Never fetch/push/pull/clone using an `https://github.com/...` URL — not as an explicit URL on the command line, not via `url.*.insteadOf` rewrites, not via `GIT_CONFIG_*` env overrides, and not by any other workaround. Any attempt to use HTTPS is wrong.
+  - **If an SSH git operation fails or hangs, STOP and tell the user.** Do NOT fall back to HTTPS, even if a memory note, doc, or earlier session says SSH is broken and HTTPS works — such notes are stale and must not be followed.
   - `gh` (the CLI) may still be used for API calls (issues, PRs, repo config); this rule is only about how **git** transports authenticate.
 
 ### Licensing
