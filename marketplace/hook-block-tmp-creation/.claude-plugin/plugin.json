@@ -1,6 +1,6 @@
 {
   "name": "hook-block-tmp-creation",
-  "description": "Blocks file creation in /tmp/ — forces use of project-local tmp/ directories instead",
-  "version": "1.0.0",
+  "description": "Blocks file creation in /tmp/ (incl. a /tmp scratchpad, VAR=/tmp, --out /tmp, -v /tmp:, cd /tmp) — forces use of project-local tmp/ directories instead",
+  "version": "1.1.0",
   "author": {"name": "Tim Ansell"}
 }
