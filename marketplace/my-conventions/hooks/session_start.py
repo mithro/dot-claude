@@ -37,6 +37,9 @@ These conventions apply to all projects unless overridden by project-specific ru
 
 ### Temporary Files
 - **NEVER** create files in `/tmp/`. Use a project-local `tmp/` directory instead (e.g. `mkdir -p ./tmp`). **ALWAYS** clean up any tmp files when done.
+- This **includes the harness "scratchpad"** whenever the system prompt places it under `/tmp/claude-<uid>/` — that instruction does not override this rule. A scratchpad outside `/tmp` (set via `CLAUDE_CODE_TMPDIR`) is fine.
+- It also includes **indirect** use: never point a variable (`P=/tmp/...`, `TMPDIR=/tmp`), an output option (`--out /tmp/...`, `-o /tmp/...`), a container mount (`-v /tmp/...:`) or `cd` at `/tmp`.
+- **Why:** `/tmp` is often a RAM-backed tmpfs — large scratch output (build trees, images, simulation runs) eats memory shared with every other process and vanishes on reboot.
 
 ### SSH
 - **NEVER** use the `-H` flag with `ssh-keyscan`, `ssh-keygen`, or other SSH tools. The `-H` flag hashes hostnames and addresses, making `known_hosts` files unreadable. Also **never** set `HashKnownHosts` to `yes` in SSH config files — use `HashKnownHosts no` or omit it entirely.
