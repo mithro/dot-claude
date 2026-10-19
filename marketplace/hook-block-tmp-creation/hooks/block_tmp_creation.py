@@ -107,11 +107,15 @@ To move Claude Code's own temp dir and the scratchpad off `/tmp`, set \
 
 
 def make_deny(message):
-    """Return a deny response with the given system message."""
+    """Return a deny response with the given message.
+
+    permissionDecisionReason is what Claude sees; systemMessage is shown to the user.
+    """
     return json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
+            "permissionDecisionReason": message,
         },
         "systemMessage": message,
     })

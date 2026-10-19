@@ -168,6 +168,14 @@ def test_main_denies_bash():
     assert out['hookSpecificOutput']['permissionDecision'] == 'deny'
 
 
+def test_main_deny_reason_reaches_model():
+    """permissionDecisionReason is what Claude sees; systemMessage only shows the user."""
+    out = run_hook({'tool_name': 'Write',
+                    'tool_input': {'file_path': '/tmp/claude-1000/x/scratchpad/a.py'}})
+    reason = out['hookSpecificOutput']['permissionDecisionReason']
+    assert 'scratchpad' in reason and 'tmpfs' in reason
+
+
 def test_main_allows_read_only_bash():
     out = run_hook({'tool_name': 'Bash',
                     'tool_input': {'command': 'du -sh /tmp'}})
