@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: reviews-page-with-planted-defects
+expected_outcome: |
+  review.md lists, with line references and a severity, the defects planted
+  in the page: a number with no citation; a reading stated as the source's
+  fact (an upgraded hedge); a quotation that differs from the source; a table
+  cell filled with a value no source gives; a bold label contradicted by its
+  own text; a footnote defined but never referenced; an inline link whose
+  URL is in no footnote; the step name used as evidence of the process; a
+  Deep dive list below the minimum. It ends with a verdict (reject or
+  approve with fixes), not approve.
+context:
+  scaffold_script: place-files.sh

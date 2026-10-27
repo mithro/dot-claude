@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: restructures-dense-page-preserving-facts
+expected_outcome: |
+  The page is restructured — long paragraphs split at real seams, the implant
+  recipes in a table with one row per implant and every row keeping its
+  marker, the tool-evidence bullets in labelled sub-items, open-questions
+  bullets labelled, a summary box built only from sentences already on the
+  page — while every footnote marker, number, quotation and hedge of the
+  original survives unchanged, no empty cell is filled, the collapsed
+  in-force note and the generated block are byte-identical, the mandatory
+  headings are untouched and the Deep dive bullet count is unchanged.
+context:
+  scaffold_script: place-files.sh

@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: writes-page-from-source-notes
+expected_outcome: |
+  A complete step page in the site's template, built only from the notes in
+  sources.md. Every number carries a footnote marker or an explicit "typical"
+  label with its own citation; every footnote is defined and used; the step
+  name is not used as evidence of the process; what the sources do not say is
+  stated as not public and listed under Open questions; the retrieval date and
+  the archive copy are cited where the notes give them; the parallel vendor
+  data is a table, paragraphs stay under 100 words, and nothing outside the
+  notes (tools, numbers, suppliers) is asserted as fact.
+context:
+  scaffold_script: place-files.sh
