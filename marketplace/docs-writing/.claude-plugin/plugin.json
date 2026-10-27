@@ -1,0 +1,6 @@
+{
+  "name": "docs-writing",
+  "description": "Writing documentation that a reader can use — one need per page, fixed how-to skeleton, a picture beside every bench step, sources as links, reviewed by use; with page templates and a prose linter",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}

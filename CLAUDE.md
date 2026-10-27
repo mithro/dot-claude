@@ -21,3 +21,4 @@ claude plugin marketplace add mithro/dot-claude
 - `hook-*` — 7 hooks (allow-ssh, block /tmp, stderr, SSH hash, SSH unsafe options, force-push, inline scripts)
 - `my-conventions` — Universal coding conventions (Python/uv, dates, commits, etc.)
 - `github-repo-setup` — GitHub repository configuration tools and skills
+- `docs-writing` — the `writing-docs` skill: documentation a reader can use (page types, how-to skeleton, pictures, review by use), with page templates and a prose linter

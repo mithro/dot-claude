@@ -153,6 +153,13 @@
       "category": "agents"
     },
     {
+      "name": "docs-writing",
+      "description": "Writing documentation a reader can use \u2014 the writing-docs skill: one need per page, fixed how-to skeleton, a picture beside every bench step, sources as links, review by use; page templates and a prose linter",
+      "version": "1.0.0",
+      "source": "./marketplace/docs-writing",
+      "category": "productivity"
+    },
+    {
       "name": "github-repo-setup",
       "description": "GitHub repository configuration \u2014 standard settings, branch protection, tag rulesets, and security setup",
       "version": "1.0.0",

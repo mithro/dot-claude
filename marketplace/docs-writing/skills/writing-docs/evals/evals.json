@@ -1,0 +1,53 @@
+{
+  "skill_name": "writing-docs",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need a docs page for our hardware docs site (Sphinx with MyST markdown) on hooking up the little SSD1306 OLED module to a Pi 4 over I2C. I've dumped everything I know into evals/files/oled-facts.md including which photos we have in photos/. Write the page(s) as markdown files in the output directory. It's for someone at the bench with the module and a Pi in front of them.",
+      "expected_output": "A how-to page (and possibly a separate troubleshooting reference) with the fixed headings What you need / Steps / Check / If it fails / Next; one imperative step per action with place, action and result; the available photos placed in the steps they belong to (not all at the top); a parts list with quantities; the 5 V warning as text at the step, not a callout carrying a step; no 'Future:', no 'Sources:' section, no lab counts; sources as inline links; scope sentences first; front matter; no banned words.",
+      "files": ["evals/files/oled-facts.md"],
+      "assertions": [
+        "The output is a Markdown how-to page whose level-2 headings are exactly 'What you need', 'Steps', 'Check', 'If it fails', 'Next' in that order",
+        "Every numbered step contains exactly one imperative action and states the result or what the reader sees",
+        "The available photos (oled-front.jpg, oled-header.jpg, pi4-header-corner.jpg, wired.jpg) are referenced in the steps or parts list they belong to, with non-empty alt text, not all grouped at the top",
+        "The parts list under 'What you need' gives each part with a quantity, one per line",
+        "No page contains the words 'Future', 'Sources:', 'TODO', 'just', 'simply', 'easy', 'currently', 'soon' or the lab module counts (five, eight)",
+        "The page opens with one to three sentences stating what it covers, for whom and what it leaves out, and carries front matter with type, owner, reader and review",
+        "The 'If it fails' section lists, for the bench faults given, what you see, the likely cause and the fix",
+        "Source documents (datasheet, Raspberry Pi documentation, luma.oled README) appear as inline descriptive links in the sentences that need them, not as a sources list"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Our relay HAT page in docs/hardware/relay-hat.md is a mess and people keep getting it wrong at the bench — see evals/files/messy-page.md. Can you rework it into proper documentation? Put the resulting page or pages in the output directory and tell me what you changed and why.",
+      "expected_output": "The page split by type: an explanation/overview of the HAT, a how-to for fitting and testing it with fixed headings and one step per action, a reference for the GPIO mapping (and the troubleshooting rows), cross-linked; 'Future:' section and 'Where the facts come from' removed with the planned items pointed at issues; sources as inline links; the light/dark double image replaced by one themed figure; counts and 'currently' removed; 'just', 'simply', 'please note', 'in order to' gone; the TODO filed as an issue rather than left; a short list of what changed and why.",
+      "files": ["evals/files/messy-page.md"],
+      "assertions": [
+        "The output contains more than one page, each of a single type (explanation, how-to, reference), and they link to each other",
+        "The how-to page has exactly the headings 'What you need', 'Steps', 'Check', 'If it fails', 'Next' and each step is one imperative action with its result",
+        "The GPIO mapping (K1 GPIO 26, K2 GPIO 20, K3 GPIO 21, K4 GPIO 19) is presented as a table or generated reference, with header pin numbers, not as prose",
+        "No output page contains 'Future:', 'Where the facts come from', 'Sources:', 'TODO', 'coming soon', 'currently', 'just', 'simply', 'please note' or 'in order to'",
+        "The planned Pi 5 support and the web page are either removed from the reader pages or confined to a roadmap/plans note that names issue #17 or another issue",
+        "The light and dark images are not both offered as separate images to the reader; a single themed figure mechanism or one image is used",
+        "The host counts ('five of our Pi 4 hosts', '9 of them in the lab') are removed",
+        "The response explains what was changed and why, referring to the reader's needs"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Before I merge it, can you review the fpgacheck docs page in evals/files/fpgacheck-page.md? It's meant to be the how-to for someone with a board on a Pi who wants to check the wiring. Write your review to review.md in the output directory.",
+      "expected_output": "A review with a use-it pass (one row per step: could I do it from what is on the page, what did I guess, what did I look for and not find), an audit pass marking facts as sourced or not, and a shortcut hunt; findings include: the page mixes how-to with reference (options) and explanation (how detection works); the title is not 'How to…'; 'just', 'easy', 'currently', 'not yet', 'note:' callouts carrying a prerequisite (sudo on Pi 5); step 2 is not an action and buries explanation; step 3 has no result; drifting number (14 tests); 'Next' has six links and none are real links; the apt key line pipes into tee without the keyring path being created and the sources list is never added, so the install cannot work as written; findings as fix-or-file items.",
+      "files": ["evals/files/fpgacheck-page.md"],
+      "assertions": [
+        "The review contains a step-by-step use-it pass with one entry per numbered step saying whether the reviewer could do it from the page and what was missing",
+        "The review identifies that the page mixes page types (how-to with an options reference and a detection explanation) and recommends splitting",
+        "The review flags the title 'Using fpgacheck' as not naming the task in the house form (How to …)",
+        "The review flags the banned or rotting words present (just, easy, currently, not yet) and the drifting count of 14 tests",
+        "The review flags that the sudo-on-Pi-5 requirement is a prerequisite hidden in a note and must precede the steps",
+        "The review flags that the installation commands cannot work as written (no apt sources entry is added; the keyring directory is not created)",
+        "The review flags that 'Next' has more than five entries and that they are not links",
+        "Findings are presented as fix-or-file items, not as a rewritten page"
+      ]
+    }
+  ]
+}
