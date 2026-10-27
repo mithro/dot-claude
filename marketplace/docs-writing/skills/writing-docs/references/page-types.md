@@ -47,7 +47,9 @@ fails · Next**, in this order and no others.
 - **What you need**, bench page: every part with its quantity and a picture, and every tool, one line each, so
   it can be checked off at the bench. Software page: only the non-obvious prerequisites, in plain text. Do not
   list what the reader obviously has.
-- **Steps**: numbered. Each step is one bullet, one imperative sentence: the place, then the action, then the
+- **Steps**: numbered, at most seven on a page. More than seven: split the page at a natural result, or group
+  the steps under level-3 headings inside "Steps" (the only sub-headings a how-to carries). Never merge actions
+  to fit. Each step is one bullet, one imperative sentence: the place, then the action, then the
   result in the same paragraph. "On the housing's open side, push the **GND** wire into cavity 1 until it
   clicks. The latch is now flush." Where the action happens comes first so the eyes are already there. Bench
   steps carry their picture in the step. Several actions per picture, or several pictures per step, are both
