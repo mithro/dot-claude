@@ -117,6 +117,11 @@ Read [references/style.md](references/style.md) for the full word and limit rule
   copying text, so that a fix lands everywhere.
 - Limits: title 65 characters; sentence 25 words; paragraph 3 to 5 sentences; list 2 to 7 items; at most two
   callouts, never carrying a step or a prerequisite; at most 15 links; five heading levels.
+- A procedure that needs more than seven steps is split into two pages at a natural result, or its steps are
+  grouped under level-3 headings inside "Steps". Never merge two actions into one step to fit the limit: a
+  step with three commands and no result is the fault the limit exists to prevent.
+- Never write a URL you have not opened. A source you cannot link is named in words and the missing link is
+  filed; a placeholder such as `OWNER/REPO` or `example.org` never reaches a reader page.
 - Banned words: `just`, `simply`, `easy`, `easily`, `straightforward`, `please note`, `click here`, `currently`,
   `soon`, `e.g.`, `i.e.`, `etc.`, `in order to`, `as of this writing`. They minimise the reader's difficulty or
   rot with time. Not on a reader page: `Future:`, `Sources:`, `unverified`, `TODO`, `not yet`.

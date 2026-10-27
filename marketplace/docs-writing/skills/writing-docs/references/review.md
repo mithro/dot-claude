@@ -76,6 +76,8 @@ page preserves the old page's stale facts.
 - Variants without pictures; a mapping as a table of numbers; a step that cannot be done from its picture and
   one line; a page that mixes types; a sentence where a table cell wants a value.
 - A command that never ran as written; a measurement with no date or host; a count that will drift.
+- A title that names the tool or the topic instead of the task; a "Next" list over five entries or without
+  link targets; a placeholder URL; an opening that does not say what the page leaves out.
 - Output that explains why there is no output ("not enough data yet"); a fallback or "unknown" where the tool
   should have failed loud.
 
