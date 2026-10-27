@@ -19,7 +19,9 @@ scanning reader must still find the step. Each limit has a published source; see
 | Heading levels | 5 | deeper means a new page |
 | Entries under one sidebar heading | 7 | more gets sub-headings |
 | Alt text | 150 characters | screen readers |
-| Printed length of a bench guide | about 4 or 5 A4 sheets with diagrams | more is a second page |
+
+A site that prints bench guides may add a printed-length limit per page (*house decision*; docs.fpgas.online
+uses about 4 or 5 A4 sheets with diagrams).
 
 ## Words
 
@@ -43,22 +45,24 @@ A mention of a banned word in code or in quotation marks is a mention, not a use
 
 - One name per thing, as printed on the part or shown in the interface. The reader matches what they read to
   what they see.
-- Board markings in bold as printed: **GND**, **3V3**, **P1**. "GPIO 4", never "pin 4" (which confuses the
-  GPIO number with the header position).
+- Board markings in bold as printed: **GND**, **3V3**, **P1**. A GPIO by its GPIO number ("GPIO 4"), never
+  "pin 4", which confuses the GPIO number with the header position (the Raspberry Pi style guide's rule).
 - Pin 1 by its visible marker (the triangle, the square pad, the stripe), never by colour. Directions by a
-  visible feature ("the connector nearest the M.2 edge"), never "left", "above" or "on the right-hand side".
+  visible feature ("the connector nearest the card edge"), never "left", "above" or "on the right-hand side".
 - Interface controls in bold, with generic verbs: "select **Add**", not "click the Add button".
-- No names of people on a page. Attribution goes in the commit.
+- Attribution goes in the commit, not on the page. (*House decision* whether people are named on pages at all;
+  docs.fpgas.online names none.)
 
 ## Numbers and dates
 
-- No number that drifts: no test counts ("160 passed"), host counts ("five at Welland"), file counts, role
+- No number that drifts: no test counts ("160 passed"), device counts ("five in the lab"), file counts, role
   counts. Describe what is checked, not how many; link where the reader can see the live value.
 - No date except on a fact that is itself dated. A measurement says when it was taken and on what; a page does
   not say "as of October".
 - What changes is anchored by a version or an issue number: "since v1.4", "tracked in issue #123", never
   "currently" or "in the current version".
-- Day-first or ISO 8601 dates ("29 Nov 2025", "2025-11-29"), never month-first.
+- Dates in one unambiguous form site-wide (*house decision*; ISO 8601 or day-first avoids the month-first
+  ambiguity).
 
 ## Detail and repetition
 
@@ -72,8 +76,8 @@ A mention of a banned word in code or in quotation marks is a mention, not a use
 ## Sources
 
 A source is one descriptive link in the sentence that needs it, front-loaded with the relevant words:
-"a Molex Pico-EZmate 8-way housing ([datasheet](…))", "the bootloader reads `config.txt` first
-([Raspberry Pi documentation: boot sequence](…))".
+"an 8-way Pico-EZmate housing ([datasheet](…))", "the bootloader reads `config.txt` first
+([the vendor's boot-sequence documentation](…))".
 
 Not allowed: `Sources:` lines, a "Where the facts come from" section, footnotes, superscripts, a "Further
 reading" list. Every web style guide rejects footnotes; the audit of which claim came from where belongs in the
@@ -82,7 +86,7 @@ review record, not on the page.
 ## Links
 
 - In context, at the point where the reader needs it. Not collected at the bottom (except the capped "Next").
-- Descriptive link text that makes sense out of context: "[How to crimp the JTAG wires](…)", never "here" or
+- Descriptive link text that makes sense out of context: "[How to crimp the cable's wires](…)", never "here" or
   "this page". The same text never links to two destinations.
 - Within a page, link a destination once.
 - A link to an outside authority is better than a copy of its content.

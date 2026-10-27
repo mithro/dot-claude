@@ -2,16 +2,15 @@
 
 ## The site
 
-- The top level is a small set of sections. Label them by activity ("Getting started", "Tasks", "Reference")
-  unless the audiences are genuinely disjoint, in which case label them by reader. A site with a visitor who has
-  no hardware, an administrator with a bench, and a developer with a checkout has disjoint audiences, so "User
-  documentation / Admin documentation / Developer documentation / Resources" is right for it. Inside each
-  section the four page types apply.
+- The top level is a small set of sections (*house decision*). Label them by activity ("Getting started",
+  "Tasks", "Reference") unless the audiences are genuinely disjoint, in which case label them by reader (a site
+  whose readers are a visitor with no hardware, an operator with a bench and a developer with a checkout may use
+  "User / Admin / Developer / Resources"). Inside each section the four page types apply.
 - A section exists only when a real page sits under it. "It certainly does not mean that you should create
   empty structures … Don't do that. It's horrible." The structure is built by re-nesting pages that exist.
 - Pages are ordered as the reader works: what it is, which one I have, set it up, check it, look it up.
-- Pages are organised by the reader's task and hardware, not by topic or tool: one wiring page per carrier
-  board, one setup page per host type, the by-hand checks apart from the tool reference. If the site prints
+- Pages are organised by the reader's task and the thing in their hands, not by topic or tool: one set-up page
+  per host or platform variant, the by-hand checks apart from the checking tool's reference. If the site prints
   pages for the bench, page structure is booklet structure.
 - A landing page is one line per destination and nothing else. The home page opens with the sections and then
   "I want to…" paths for the first things readers come for.
@@ -49,8 +48,8 @@ The sites that stay current do it with machinery, not better prose.
 - Every page has an owner and a review (freshness) date in its front matter; an expired date opens an issue to
   the owner.
 - Every page shows its last-modified date linked to the commit.
-- Every rename or move leaves a redirect, and the build refuses one that does not (after a rebuild of unused
-  pages, the project lead may waive this for the pages moved during the rebuild).
+- Every rename or move leaves a redirect, and the build refuses one that does not. (A site rebuilding pages
+  nobody used may decide, as a *house decision*, to skip redirects for the pages moved during the rebuild.)
 - Reference generated from source data fails the build when the data changed and the page did not.
 - Status is anchored to a version or an issue, never "currently" or "new".
 - Deprecated content is deleted, not annotated. A procedure nobody has executed is removed, not left.

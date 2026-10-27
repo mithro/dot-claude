@@ -20,9 +20,9 @@ from the practitioners who reach the same place (iFixit, IKEA, LEGO).
    both. Without a photo: an existing project photo, one from the web (with its source and licence recorded),
    or a line drawing, and the wanted photo goes on the list in the pull request.
 4. **Find the facts in the pictures before asking anyone.** Where is pin 1, which way is up, which connector is
-   P1: the maker's photos, schematics and CAD sources show it. If a photo is too low-resolution, find a larger
-   one; if none is good enough, render from the CAD source (`kicad-cli`). Asking the project lead what a photo
-   could show wastes their attention and leaves a page saying "not checked".
+   which: the maker's photos, schematics and CAD sources show it. If a photo is too low-resolution, find a
+   larger one; if none is good enough, render from the CAD source (`kicad-cli` for KiCad). Asking a person what
+   a photo could show wastes their attention and leaves a page saying "not checked".
 5. **The object is shown as it sits in that step.** The viewpoint changes at most once in a sequence, then
    holds. Pin 1 and the "this way up" cue are in frame.
 6. **One colour per item across the page set.** Callout numbers equal the section numbers they point to. Wire
@@ -40,13 +40,13 @@ from the practitioners who reach the same place (iFixit, IKEA, LEGO).
 
 1. **One action diagram per step at a fixed viewpoint.** One diagram reused across steps is wrong. The sanctioned
    reuse is small multiples: the same base drawing re-rendered per step with only the new part and its arrow
-   emphasised. Generate the views from one model (the board geometry, pin 1, the host header, the wiring data,
-   the cable) by id, so a fix to the model fixes every view.
+   emphasised. Generate the views from one model (the object's geometry, its markers such as pin 1, the
+   mating part, the wiring data) by id, so a fix to the model fixes every view.
 2. **The part added in the step is at least half visible; earlier parts at least a tenth**, for context; the
    attachment point is unoccluded and the motion is arrowed. Arrows read as action; diagrams without arrows read
    as structure.
-3. **A figure about one part highlights that part only.** A look-alike (P2 beside P1) appears muted, as the
-   thing not to confuse it with, never highlighted as strongly as the subject.
+3. **A figure about one part highlights that part only.** A look-alike (the neighbouring connector of the same
+   kind) appears muted, as the thing not to confuse it with, never highlighted as strongly as the subject.
 4. **A crop carries a whole-object inset**, so the reader knows where on the board they are. Every zoomed shot
    gets a context view.
 5. **Before and after** where the state changes: the socket empty, then the plug seated. A result picture after
@@ -80,26 +80,26 @@ Slot 8 is minimalism's "support error recognition and recovery", the one princip
 IKEA marks error-prone steps with a sad face; the common failure is "reaching step 14 and realising you used
 the wrong screw in step 3".
 
-## The figures every board gets
+## The figures every physical product gets
 
 | Figure | Shows |
 |---|---|
-| Whole board | top and bottom, photo and render |
-| Connectors | each one, with pin 1 marked |
-| Wiring | the cable as the ribbon lies (the as-laid, debugging view) |
-| Programming | the three layers: protocol, connection, tool |
+| Whole object | every side the reader will see, photo and render |
+| Connectors and controls | each one, with its pin 1 or orientation marker |
+| As-laid wiring | the cable as it lies when fitted (the debugging view) |
+| How it is driven | the layers kept apart: the protocol, the connection, the tool |
 | Variants | the comparison side by side, same orientation and scale, the tell marked |
 
 ## Placeholders
 
-A reader page does not carry "figure to come" in normal work. During a rebuild, and only then, a page may carry
-a placeholder admonition that names the issue tracking the figure, so the gap is visible and owned:
+A reader page does not carry "figure to come" in normal work. If a site allows placeholders during a rebuild
+(*house decision*), a placeholder names the issue tracking the figure, so the gap is visible and owned:
 
 ```markdown
 :::{admonition} Figure to come
 :class: placeholder
 
-The five variants side by side, same orientation and scale, the difference marked. Tracked in [docs issue #123](…).
+The variants side by side, same orientation and scale, the difference marked. Tracked in [issue #123](…).
 :::
 ```
 

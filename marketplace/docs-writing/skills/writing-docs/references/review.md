@@ -1,9 +1,9 @@
 # Reviewing a page
 
 A documentation review tests whether the page can be used, then whether it is true. A review that only checks
-facts confirms the scaffolding and ships a correct, unusable page; four such reviews passed a cable-building
-section that the project lead called "unreadable and useless". So: use it first, audit it second, and brief the
-reviewer to hunt for shortcuts.
+facts confirms the scaffolding and ships a correct, unusable page (the case study in
+[fpgas-online.md](fpgas-online.md) has one: four fact reviews passed a cable guide its reader could not follow).
+So: use it first, audit it second, and brief the reviewer to hunt for shortcuts.
 
 ## Who
 
@@ -13,7 +13,8 @@ reviewer to hunt for shortcuts.
   review around the fix; the dispatcher's brief names the reader.
 - A procedure is executed by someone other than the author before it merges. On real hardware or in a clean
   environment where possible; where nobody has the hardware, a sub-agent follows the rendered page as the named
-  reader, step by step, with nothing but the page. Nobody outside the team is asked to do this work.
+  reader, step by step, with nothing but the page. (*House decision* whether anyone outside the team may be asked
+  to run a procedure; docs.fpgas.online never asks.)
 
 ## What the reviewer is given
 
@@ -22,8 +23,8 @@ reviewer to hunt for shortcuts.
 - The rendered page: screenshots of every step at desktop and phone width, light and dark if the site has
   themes, plus the image files. Markup alone is not enough: a wrong highlight cannot be seen in markup.
 - A hardware fact sheet for the thing on the page: what it is, which hosts can physically carry it, what its
-  connectors are. A reader walk as the right reader skips a claim about the wrong hardware ("a Pi 4 takes the
-  same cable" for an M.2 card).
+  connectors are. A reader walk as the right reader skips a claim about the wrong hardware (a page once said a
+  single-board computer without the card's slot "takes the same cable").
 - The page type's rules ([page-types.md](page-types.md)) and the shortcut list below.
 
 ## The brief
@@ -95,9 +96,12 @@ a code review as well.
 
 ## The merge gate
 
+The generic gate, which any site can adopt (a site may add its own conditions; docs.fpgas.online's are in
+[fpgas-online.md](fpgas-online.md)):
+
 - The independent review is clean (every finding fixed or filed).
 - The build is green on the exact head that will merge.
-- That head contains the main branch, checked in the same command as the merge.
+- That head contains the main branch at merge time, so the merged result is what was reviewed and built.
 - Someone other than the author has followed one procedure on the page from start to finish.
 - The pull request holds one page or one coherent set; a change that makes a page wrong carries the page's fix.
 

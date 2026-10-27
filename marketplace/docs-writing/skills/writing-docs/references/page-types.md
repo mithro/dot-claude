@@ -33,12 +33,17 @@ explanation" (Diátaxis).
 
 ## How-to
 
-The headings are, in this order and no others: **What you need · Steps · Check · If it fails · Next**. Fixed
-headings make a missing part visible: a how-to with no "If it fails" is unfinished by inspection, and a how-to
-with a "Background" heading is carrying explanation that belongs on its own page.
+The parts are fixed and ordered: prerequisites, steps, verification, error recovery, next. Fixed headings make
+a missing part visible: a how-to with no error-recovery part is unfinished by inspection, and a how-to with a
+"Background" heading is carrying explanation that belongs on its own page. The headings' names are a *house
+decision* made once per site (Red Hat uses Prerequisites · Procedure · Verification · Troubleshooting · Next
+steps); the default in this skill, and the one the linter checks, is **What you need · Steps · Check · If it
+fails · Next**, in this order and no others.
 
-- **Title**: "How to" and exactly what the page shows. Unique. At most 65 characters. "How to fill the JTAG
-  cable's housing (Raspberry Pi 5)", not "JTAG housing" and not "Filling housings".
+- **Title**: names the task and nothing else, uniquely, in at most 65 characters. The verb form is a *house
+  decision* (Diátaxis: "How to integrate…"; Red Hat: "Integrating…"; Google: "Integrate…"); the default here
+  is "How to <exactly what the page shows>". "How to fill the cable's housing (Raspberry Pi 5)", not "Housing"
+  and not "Filling housings".
 - **What you need**, bench page: every part with its quantity and a picture, and every tool, one line each, so
   it can be checked off at the bench. Software page: only the non-obvious prerequisites, in plain text. Do not
   list what the reader obviously has.
@@ -58,7 +63,7 @@ with a "Background" heading is carrying explanation that belongs on its own page
 - A how-to with one step writes it as one sentence in a bulleted list.
 - No table in the middle of a procedure; no callout carrying a step or a prerequisite.
 
-### Example: a how-to step page (bench)
+### Example: a how-to step page (bench), from docs.fpgas.online
 
 ```markdown
 ---
@@ -134,7 +139,7 @@ distinguish variants. Austere by design: one hardly reads reference, one consult
   belongs; if the value is missing, that is a fault in the tool that produces it, not a note for the cell.
 - Troubleshooting is a reference page: rows of what you see, the likely cause, the fix.
 
-### Example: a troubleshooting reference
+### Example: a troubleshooting reference, from docs.fpgas.online
 
 ```markdown
 # Acorn wiring faults on a Raspberry Pi 5
@@ -161,10 +166,10 @@ Two special explanations recur on hardware sites:
 
 - **Orientation** (what is this thing): opens with the whole object (photo and render), then a master picture
   whose numbered callouts are the page's sections, each section showing its own crop with the whole as an inset.
-- **The layered model** (how it is driven): one page per board, keeping the **protocol** (JTAG), the
-  **connection** (the host's GPIO pins to P1, or PCIe) and the **tool** (OpenOCD, openFPGALoader) apart, with
-  one figure drawn in those three layers. Confusing the tool with the connection ("program it over OpenOCD")
-  leaves the reader unable to reason about what talks to what.
+- **The layered model** (how it is driven): one page per device, keeping the **protocol** (JTAG, I²C), the
+  **connection** (which pins or bus carry it) and the **tool** (the program that drives it) apart, with one
+  figure drawn in those three layers. Confusing the tool with the connection ("program it over OpenOCD") leaves
+  the reader unable to reason about what talks to what.
 
 ## Identification (a reference)
 
@@ -175,7 +180,7 @@ art: readers with low spatial ability need realistic mappings to the actual piec
 ## Landing
 
 One line per destination and nothing else: the destination's name as the link, then what the reader finds
-there. "[Acorn variants](which-one.md): which card of the family you have." A landing page that explains, lists
+there. "[Variants](which-one.md): which card of the family you have." A landing page that explains, lists
 contents twice, or carries notes is doing more than being a traffic cop and is not doing its job. Entries are
 ordered as the reader works: what it is, which one I have, set it up, check it, look it up.
 
