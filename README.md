@@ -38,7 +38,7 @@ this directory on reboot, so add your own retention (e.g. systemd-tmpfiles).
 
 ## Plugins
 
-### Agents (19)
+### Agents (21)
 
 Specialized agents for various development tasks:
 
@@ -49,6 +49,8 @@ Specialized agents for various development tasks:
 | `agent-backend-architect` | Scalable API design, microservices, distributed systems |
 | `agent-celery-expert` | Async task debugging, retry strategies, queue management |
 | `agent-code-reviewer` | Code quality, security vulnerabilities, best practices |
+| `agent-cpp-pro` | Modern C++20/23, systems programming, high-performance computing |
+| `agent-csharp-developer` | Modern .NET, ASP.NET Core, Blazor, cross-platform |
 | `agent-data-scientist` | SQL optimization, Django ORM, data visualization, Pandas |
 | `agent-debugger` | Root cause analysis, systematic debugging, profiling |
 | `agent-deployment-engineer` | Production deployment, zero-downtime, WSGI/ASGI |
@@ -64,19 +66,30 @@ Specialized agents for various development tasks:
 | `agent-sre-engineer` | Monitoring, observability, incident response, SLOs |
 | `agent-test-specialist` | Django/pytest, browser testing, test coverage |
 
-### Hooks (7)
+### Hooks (9)
 
 Enforcement hooks for SSH, git, and command safety:
 
 | Plugin | Description |
 |--------|-------------|
-| `hook-allow-ssh` | Auto-allows SSH/scp/rsync to configured hosts (eliminates permission prompts) |
+| `hook-allow-ssh` | Auto-allows SSH/scp/rsync to configured hosts (eliminates permission prompts); never anything that also runs or writes locally |
 | `hook-block-tmp-creation` | Blocks file creation in `/tmp/`, incl. indirect use (`VAR=/tmp/…`, `--out /tmp/…`, `-v /tmp/…:`, `cd /tmp`) (use project-local `tmp/`) |
-| `hook-block-stderr-to-null` | Blocks `2>/dev/null` (keep diagnostic output visible) |
+| `hook-block-stderr-to-null` | Blocks silencing stderr: `2>/dev/null`, `>/dev/null 2>&1`, `&>/dev/null`, `2>&-` (keep diagnostic output visible) |
 | `hook-block-ssh-hash-hostnames` | Blocks SSH `-H` flag and `HashKnownHosts` (keep known_hosts readable) |
-| `hook-block-ssh-unsafe-options` | Blocks `StrictHostKeyChecking=no` and `UserKnownHostsFile=/dev/null` |
-| `hook-block-inline-scripts` | Blocks `python -c` and heredocs (write to a file first) |
-| `hook-safe-force-push` | Blocks bare `git push --force` (use `git safe-force-push <branch>`) |
+| `hook-block-ssh-unsafe-options` | Blocks `StrictHostKeyChecking=no` and `UserKnownHostsFile=/dev/null` on the command line or in ssh config files |
+| `hook-block-inline-scripts` | Blocks `python [flags] -c` and expanding heredocs (write to a file first) |
+| `hook-safe-force-push` | Blocks every direct force push: `--force`, `-f`, `--force-with-lease`, `+refspec` (use `git safe-force-push <branch>`) |
+| `hook-block-gitconfig-safe-directory` | Blocks adding `[safe]`/`safe.directory` to any gitconfig (fix ownership instead) |
+| `hook-block-megacommits` | Blocks oversized commits (>15 files or >400 added lines); override with `ALLOW_MEGACOMMIT=1` |
+
+All deny hooks report their reason in `hookSpecificOutput.permissionDecisionReason`
+(the field the model sees) and fail open *visibly* (exit 1 + traceback on stderr)
+if they hit a bug. Each hook has tests under its `hooks/` directory; run them all:
+
+```bash
+uv run run_hook_tests.py            # everything
+uv run run_hook_tests.py allow-ssh  # one plugin
+```
 
 ### Productivity (3)
 
@@ -91,12 +104,13 @@ Enforcement hooks for SSH, git, and command safety:
 ```
 dot-claude/
 ├── .claude-plugin/
-│   └── marketplace.json          # Marketplace catalog (28 plugins)
+│   └── marketplace.json          # Marketplace catalog (34 plugins)
 ├── marketplace/
-│   ├── agent-*/                  # 19 agent plugins
-│   ├── hook-*/                   # 7 hook plugins
+│   ├── agent-*/                  # 21 agent plugins
+│   ├── hook-*/                   # 9 hook plugins (each with hooks/test_*.py)
 │   ├── my-conventions/           # Coding conventions (SessionStart hook)
 │   └── github-repo-setup/       # GitHub config skill + scripts
+├── run_hook_tests.py             # Runs every hook plugin's tests
 ├── settings.json                 # Repo-level permissions
 ├── CLAUDE.md                     # Repo description
 ├── GitHub.md                     # Reference: GitHub setup commands

@@ -162,7 +162,7 @@
     {
       "name": "hook-block-ssh-hash-hostnames",
       "description": "Blocks SSH hostname hashing (-H flag and HashKnownHosts=yes) \u2014 keeps known_hosts readable",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "source": "./marketplace/hook-block-ssh-hash-hostnames",
       "category": "security"
     },
@@ -176,7 +176,7 @@
     {
       "name": "hook-block-tmp-creation",
       "description": "Blocks file creation in /tmp/ (incl. a /tmp scratchpad, VAR=/tmp, --out /tmp, -v /tmp:, cd /tmp) \u2014 forces use of project-local tmp/ directories instead",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "source": "./marketplace/hook-block-tmp-creation",
       "category": "security"
     },
@@ -196,8 +196,8 @@
     },
     {
       "name": "hook-allow-ssh",
-      "description": "Auto-allows SSH/scp/rsync to configured hosts \u2014 eliminates repeated permission prompts for trusted machines",
-      "version": "1.0.0",
+      "description": "Auto-allows SSH/scp/rsync to configured hosts (never anything that also runs or writes locally) \u2014 eliminates repeated permission prompts for trusted machines",
+      "version": "1.1.0",
       "source": "./marketplace/hook-allow-ssh",
       "category": "security"
     },
@@ -211,14 +211,14 @@
     {
       "name": "hook-block-gitconfig-safe-directory",
       "description": "Blocks adding [safe]/safe.directory entries to any gitconfig \u2014 fix file ownership instead",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "./marketplace/hook-block-gitconfig-safe-directory",
       "category": "security"
     },
     {
       "name": "hook-block-megacommits",
       "description": "Blocks oversized git commits (too many files/lines) \u2014 encourages small, logical commits; override with ALLOW_MEGACOMMIT=1",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "./marketplace/hook-block-megacommits",
       "category": "security"
     },
