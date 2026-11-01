@@ -5,6 +5,11 @@ Blocks:
   - StrictHostKeyChecking=no  (disables host key verification entirely)
   - UserKnownHostsFile=/dev/null  (discards learned host keys)
 
+in both `-o Option=value` and `-o 'Option value'` command-line spellings, and
+as directives written to SSH config files (~/.ssh/*, /etc/ssh/*, *ssh_config*).
+Writes to other files that merely mention the options (docs, code, tests) are
+not the hook's business.
+
 These are commonly used together to blindly accept any host key, which
 defeats SSH's protection against man-in-the-middle attacks.
 
@@ -12,14 +17,22 @@ Allows:
   - StrictHostKeyChecking=accept-new  (accept first-seen keys, reject changes)
   - StrictHostKeyChecking=yes / ask  (strict verification)
   - UserKnownHostsFile=<any real path>  (any file that isn't /dev/null)
+
+Output protocol: a deny carries the explanation in
+hookSpecificOutput.permissionDecisionReason (the field Claude Code shows to the
+model) and repeats it in systemMessage (shown to the user). If the hook itself
+fails it exits 1 with a traceback on stderr: a non-blocking error that lets the
+tool call proceed but is visible, rather than silently approving.
 """
 
 import json
 import re
 import sys
+import traceback
+from pathlib import Path
 
 
-DENY_STRICT_HOST_KEY = """\u274c **`StrictHostKeyChecking no` blocked by hook**
+DENY_STRICT_HOST_KEY = """❌ **`StrictHostKeyChecking no` blocked by hook**
 
 Setting `StrictHostKeyChecking` to `no` disables SSH host key verification
 entirely — any host key is silently accepted, even if it has changed.
@@ -37,7 +50,7 @@ StrictHostKeyChecking accept-new
 `accept-new` accepts keys for hosts seen for the first time, but rejects
 changed keys for previously-seen hosts — much safer than `no`."""
 
-DENY_KNOWN_HOSTS_DEV_NULL = """\u274c **`UserKnownHostsFile /dev/null` blocked by hook**
+DENY_KNOWN_HOSTS_DEV_NULL = """❌ **`UserKnownHostsFile /dev/null` blocked by hook**
 
 Setting `UserKnownHostsFile` to `/dev/null` discards all learned host keys,
 so SSH can never detect a changed (potentially compromised) host key.
@@ -52,101 +65,103 @@ ssh -o UserKnownHostsFile=~/.ssh/known_hosts_project user@host
 
 
 # --- Command-line patterns ---
+# ssh accepts both `-o Option=value` and `-o 'Option value'`; the quote is
+# optional and the value may be separated by `=` or whitespace.
 
-# -o StrictHostKeyChecking=no (with or without space after -o)
-# Matches: -o StrictHostKeyChecking=no, -oStrictHostKeyChecking=no
 STRICT_HOST_KEY_NO_CLI = re.compile(
-    r'-o\s*StrictHostKeyChecking\s*=\s*no\b',
+    r"""-o\s*['"]?StrictHostKeyChecking[\s=]+no\b""",
     re.IGNORECASE,
 )
 
-# -o UserKnownHostsFile=/dev/null (with or without space after -o)
 KNOWN_HOSTS_DEV_NULL_CLI = re.compile(
-    r'-o\s*UserKnownHostsFile\s*=\s*/dev/null\b',
+    r"""-o\s*['"]?UserKnownHostsFile[\s=]+/dev/null\b""",
     re.IGNORECASE,
 )
 
-# --- Config file patterns ---
+# --- Config file patterns (directive per line, whitespace separated) ---
 
-# StrictHostKeyChecking no  (SSH config format uses space, not =)
 STRICT_HOST_KEY_NO_CONF = re.compile(
     r'^\s*StrictHostKeyChecking\s+no\s*$',
     re.MULTILINE | re.IGNORECASE,
 )
 
-# UserKnownHostsFile /dev/null  (SSH config format)
 KNOWN_HOSTS_DEV_NULL_CONF = re.compile(
     r'^\s*UserKnownHostsFile\s+/dev/null\s*$',
     re.MULTILINE | re.IGNORECASE,
 )
 
+# Only SSH config files are in scope for Write/Edit: ~/.ssh/..., /etc/ssh/...,
+# anything named *ssh_config* (incl. drop-in directories).
+SSH_CONFIG_PATH = re.compile(r'(^|/)(\.ssh/|etc/ssh/)|(^|/)ssh_config')
 
-def check_bash_command(command: str) -> str | None:
-    """Check if a bash command uses unsafe SSH options.
 
-    Returns a denial message if blocked, None if allowed.
-    """
+def deny(message):
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": message,
+        },
+        "systemMessage": message,
+    }))
+
+
+def allow():
+    print(json.dumps({}))
+
+
+def check_bash_command(command):
+    """Return a denial message if the command uses unsafe SSH options, else None."""
     if STRICT_HOST_KEY_NO_CLI.search(command):
         return DENY_STRICT_HOST_KEY
-
     if KNOWN_HOSTS_DEV_NULL_CLI.search(command):
         return DENY_KNOWN_HOSTS_DEV_NULL
-
     return None
 
 
-def check_file_content(tool_input: dict) -> str | None:
-    """Check if a file write/edit adds unsafe SSH options.
+def check_file_content(tool_input):
+    """Return a denial message if an SSH config write/edit adds unsafe options."""
+    if not SSH_CONFIG_PATH.search(tool_input.get('file_path', '') or ''):
+        return None
 
-    Returns a denial message if blocked, None if allowed.
-    """
-    # Check new_string (Edit tool) or content (Write tool)
-    text = tool_input.get('new_string', '') or tool_input.get('content', '')
+    # new_string (Edit tool) or content (Write tool)
+    text = tool_input.get('new_string', '') or tool_input.get('content', '') or ''
 
-    # Filter out comment lines before checking
-    non_comment_lines = []
-    for line in text.splitlines():
-        if not line.lstrip().startswith('#'):
-            non_comment_lines.append(line)
-    filtered = '\n'.join(non_comment_lines)
+    # Comment lines are harmless
+    non_comment = [line for line in text.splitlines() if not line.lstrip().startswith('#')]
+    filtered = '\n'.join(non_comment)
 
     if STRICT_HOST_KEY_NO_CONF.search(filtered):
         return DENY_STRICT_HOST_KEY
-
     if KNOWN_HOSTS_DEV_NULL_CONF.search(filtered):
         return DENY_KNOWN_HOSTS_DEV_NULL
-
     return None
 
 
 def main():
-    try:
-        input_data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        print(json.dumps({}))
-        return
+    input_data = json.load(sys.stdin)
 
     tool_name = input_data.get('tool_name', '')
-    tool_input = input_data.get('tool_input', {})
+    tool_input = input_data.get('tool_input', {}) or {}
     reason = None
 
     if tool_name == 'Bash':
-        reason = check_bash_command(tool_input.get('command', ''))
-
+        reason = check_bash_command(tool_input.get('command', '') or '')
     elif tool_name in ('Edit', 'Write'):
         reason = check_file_content(tool_input)
 
     if reason:
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-            },
-            "systemMessage": reason,
-        }))
+        deny(reason)
     else:
-        print(json.dumps({}))
+        allow()
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception:
+        # Fail open, but visibly: exit 1 is a non-blocking hook error whose
+        # stderr Claude Code shows to the user. Exit 0 with `{}` would hide the bug.
+        print(f"{Path(__file__).name}: hook failed, allowing the tool call:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
