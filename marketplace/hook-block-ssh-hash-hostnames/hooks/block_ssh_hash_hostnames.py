@@ -15,6 +15,8 @@ import json
 import re
 import shlex
 import sys
+import traceback
+from pathlib import Path
 
 SSH_TOOLS = {'ssh', 'ssh-keyscan', 'ssh-keygen', 'ssh-copy-id', 'ssh-add'}
 
@@ -173,8 +175,8 @@ def check_file_edit(tool_input: dict) -> str | None:
     if not SSH_CONFIG_PATH.search(file_path):
         return None
 
-    # Check new_text (Edit tool) or content (Write tool)
-    text = tool_input.get('new_text', '') or tool_input.get('content', '')
+    # new_string (Edit tool) or content (Write tool)
+    text = tool_input.get('new_string', '') or tool_input.get('content', '') or ''
 
     for line in text.splitlines():
         # Skip comment lines (SSH config uses # for comments)
@@ -190,37 +192,46 @@ def check_file_edit(tool_input: dict) -> str | None:
     return None
 
 
+def deny(message: str) -> None:
+    """permissionDecisionReason is what the model sees; systemMessage is for the user."""
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": message,
+        },
+        "systemMessage": message,
+    }))
+
+
+def allow() -> None:
+    print(json.dumps({}))
+
+
 def main():
-    try:
-        input_data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        # Can't read input, allow the operation
-        print(json.dumps({}))
-        return
+    input_data = json.load(sys.stdin)
 
     tool_name = input_data.get('tool_name', '')
-    tool_input = input_data.get('tool_input', {})
+    tool_input = input_data.get('tool_input', {}) or {}
     reason = None
 
     if tool_name == 'Bash':
-        command = tool_input.get('command', '')
-        reason = check_bash_command(command)
-
-    elif tool_name in ('Edit', 'Write', 'MultiEdit'):
+        reason = check_bash_command(tool_input.get('command', '') or '')
+    elif tool_name in ('Edit', 'Write'):
         reason = check_file_edit(tool_input)
 
     if reason:
-        result = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-            },
-            "systemMessage": reason,
-        }
-        print(json.dumps(result))
+        deny(reason)
     else:
-        print(json.dumps({}))
+        allow()
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception:
+        # Fail open, but visibly: exit 1 is a non-blocking hook error whose
+        # stderr Claude Code shows to the user. Exit 0 with `{}` would hide the bug.
+        print(f"{Path(__file__).name}: hook failed, allowing the tool call:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)

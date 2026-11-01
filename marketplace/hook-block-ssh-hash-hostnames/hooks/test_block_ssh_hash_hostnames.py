@@ -155,7 +155,15 @@ check(
     "Edit with commented-out hashing in ~/.ssh/config",
     "allow",
     "Edit",
-    {"file_path": "/home/tim/.ssh/config", "new_text": "# " + HASH_YES + "\n"},
+    {"file_path": "/home/tim/.ssh/config", "old_string": "Host *",
+     "new_string": "Host *\n# " + HASH_YES + "\n"},
+)
+check(
+    "Edit adding hashing to ~/.ssh/config (Edit tool field is new_string)",
+    "deny",
+    "Edit",
+    {"file_path": "/home/tim/.ssh/config", "old_string": "Host *",
+     "new_string": "Host *\n    " + HASH_YES + "\n"},
 )
 check(
     "Write mentioning the option in a non-ssh-config file",
@@ -163,6 +171,26 @@ check(
     "Write",
     {"file_path": "/home/tim/project/test_hook.py", "content": HASH_YES + "\n"},
 )
+
+# --- output protocol ---------------------------------------------------------
+
+result = run_hook("Bash", {"command": "ssh-keyscan -H host"})
+reason = result.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+if "-H" in reason:
+    print("PASS: deny reason is in permissionDecisionReason (shown to the model)")
+else:
+    failures.append(f"deny reason missing from permissionDecisionReason: {result!r}")
+    print("FAIL: deny reason is in permissionDecisionReason")
+
+proc = subprocess.run([sys.executable, str(HOOK)], input="not json",
+                      capture_output=True, text=True)
+if proc.returncode == 1 and not proc.stdout.strip() and "block_ssh_hash_hostnames" in proc.stderr:
+    print("PASS: malformed input fails open visibly (exit 1, error on stderr)")
+else:
+    failures.append(
+        f"malformed input: exit={proc.returncode} stdout={proc.stdout!r} stderr={proc.stderr[:200]!r}"
+    )
+    print("FAIL: malformed input fails open visibly")
 
 print()
 if failures:
