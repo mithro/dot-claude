@@ -3,8 +3,10 @@
 
 import json
 import os
+import subprocess
 import sys
-import tempfile
+
+import pytest
 
 # Import from same directory
 sys.path.insert(0, os.path.dirname(__file__))
@@ -119,16 +121,30 @@ def test_parse_ssh_no_host():
     assert result is None
 
 
-def test_parse_ssh_user_at_overrides_l():
-    """user@ in host token should override -l."""
-    result = allow_ssh.parse_ssh_command(
+def test_parse_ssh_conflicting_users_refused():
+    """Real ssh lets -l / -o User override user@; refuse rather than guess."""
+    assert allow_ssh.parse_ssh_command(
         ['-l', 'other', 'tim@server.example.com', 'ls']
+    ) is None
+    assert allow_ssh.parse_ssh_command(
+        ['-o', 'User=other', 'tim@server.example.com', 'ls']
+    ) is None
+
+
+def test_parse_ssh_l_agreeing_with_user_at():
+    result = allow_ssh.parse_ssh_command(
+        ['-l', 'tim', 'tim@server.example.com', 'ls']
     )
     assert result is not None
-    user, host, remote_cmd = result
-    # user@ takes precedence
-    assert user == 'tim'
-    assert host == 'server.example.com'
+    assert result[0] == 'tim'
+
+
+def test_parse_ssh_o_user_sets_user():
+    result = allow_ssh.parse_ssh_command(
+        ['-o', 'User=root', 'anyuser.example.com', 'ls']
+    )
+    assert result is not None
+    assert result[0] == 'root'
 
 
 def test_parse_scp_remote_target():
@@ -538,10 +554,11 @@ def test_find_allowed_host_not_found():
 
 
 def test_strip_privilege_prefixes():
-    """Test stripping sudo and env prefixes."""
+    """sudo/nice/nohup are stripped; env and VAR=value (PATH, LD_PRELOAD...) refuse."""
     assert allow_ssh.strip_privilege_prefixes(['sudo', 'ls']) == ['ls']
     assert allow_ssh.strip_privilege_prefixes(['sudo', '-u', 'root', 'ls']) == ['ls']
-    assert allow_ssh.strip_privilege_prefixes(['env', 'FOO=bar', 'ls']) == ['ls']
+    assert allow_ssh.strip_privilege_prefixes(['env', 'FOO=bar', 'ls']) is None
+    assert allow_ssh.strip_privilege_prefixes(['FOO=bar', 'ls']) is None
     assert allow_ssh.strip_privilege_prefixes(['ls']) == ['ls']
     assert allow_ssh.strip_privilege_prefixes([]) == []
 
@@ -623,7 +640,6 @@ def test_end_to_end_bad_json(monkeypatch, capsys):
 
 def test_script_bad_json_fails_open_visibly():
     """Run as hooks.json does: non-JSON stdin -> exit 1, nothing on stdout, error on stderr."""
-    import subprocess
     proc = subprocess.run(
         ['python3', os.path.join(os.path.dirname(__file__), 'allow_ssh.py')],
         input='not json', capture_output=True, text=True,
@@ -746,6 +762,118 @@ def test_check_command_harmless_option_still_allowed():
     ) is True
 
 
+# --- 2026-11-01 review findings: every one of these ran or wrote LOCALLY ----
+# (or logged in as a different user / host than the one checked) while being
+# auto-allowed. None may be auto-allowed.
+
+S = 'tim@server.example.com'       # allowed host, permit-root-access
+R = 'tim@restricted.example.com'   # allowed host, NO root access
+
+
+@pytest.mark.parametrize('command', [
+    # short-flag clustering hid the dangerous flag from the option check
+    f'ssh -tF ./evil_config {S} ls',
+    f'ssh -to ProxyCommand=evil {S} ls',
+    f'ssh -4oProxyCommand=evil {S} ls',
+    f'scp -rS ./evil file {S}:/tmp/x',
+    f'scp -ro ProxyCommand=evil file {S}:/tmp/x',
+    # ssh's readconf tolerates a leading '='
+    f'ssh -o=ProxyCommand=evil {S} ls',
+    f"ssh -o '=ProxyCommand=evil' {S} ls",
+    # options that load/run local code or write local files
+    f'ssh -I ./evil.so {S} ls',
+    f'ssh -o PKCS11Provider=./evil.so {S} ls',
+    f'ssh -o SecurityKeyProvider=./evil.so {S} ls',
+    f'ssh -X -o XAuthLocation=./evil {S} ls',
+    f'ssh -E /home/tim/.bashrc {S} ls',
+    f'ssh -o UserKnownHostsFile=/home/tim/.bashrc {S} ls',
+    f'ssh -o StreamLocalBindUnlink=yes -L /home/tim/.bashrc:/tmp/x {S} ls',
+    f'ssh -M -S /home/tim/sock {S} ls',
+    # connects somewhere other than the listed host
+    f'ssh -o HostName=evil.example {S} ls',
+    f'ssh -J attacker.example {S} ls',
+    f'ssh -o ProxyJump=attacker.example {S} ls',
+    f'ssh -o HostKeyAlias=other {S} ls',
+    # port forwarding exposes/binds local ports; not auto-allowed (prompt instead)
+    f'ssh -R 2222:localhost:22 -N {S}',
+    f'ssh -D 1080 -N {S}',
+    f'ssh -L 8080:localhost:80 -N {S}',
+    f'ssh -W host:22 {S}',
+    # root gate: -l / -o User win over user@ in real ssh
+    f'ssh -l root {R} ls',
+    f'ssh -lroot {R} ls',
+    f'ssh -o User=root {R} ls',
+    'ssh -o User=root anyuser.example.com ls',
+    f'scp -o User=root file {R}:/tmp/x',
+    # root gate: other privilege escalators
+    f'ssh {R} su -c reboot',
+    f'ssh {R} doas reboot',
+    f'ssh {R} pkexec reboot',
+    # leading assignments / env change how the LOCAL ssh binary runs
+    f'PATH=/home/tim/evil ssh {S} ls',
+    f'LD_PRELOAD=./evil.so ssh {S} ls',
+    f'env PATH=/home/tim/evil ssh {S} ls',
+    f'SUDO_ASKPASS=./evil sudo -A ssh {S} ls',
+    # pipe "filters" that can execute or write
+    f'ssh {S} ls | awk \'BEGIN{{system("rm -rf ~")}}\'',
+    f'ssh {S} ls | awk \'{{print > "/home/tim/.bashrc"}}\'',
+    f'ssh {S} ls | gawk -l ./evil.so 1',
+    f"ssh {S} ls | sed '1e rm -rf ~'",
+    f"ssh {S} ls | sed 'w /home/tim/.bashrc'",
+    f"ssh {S} ls | sed -Ei 's/a/b/' /home/tim/.bashrc",
+    f"ssh {S} ls | sed --in-place=.bak s/a/b/ /home/tim/.bashrc",
+    f'ssh {S} ls | sort -o /home/tim/.bashrc',
+    f'ssh {S} ls | sort -S 1 --compress-program=./evil',
+    f'ssh {S} ls | uniq - /home/tim/.bashrc',
+    f'ssh {S} ls | xxd - /home/tim/.bashrc',
+    f'ssh {S} ls | less -o /home/tim/.bashrc',
+    f"ssh {S} ls | less '+!rm -rf ~'",
+    f'ssh {S} ls | ./grep x',
+    f'ssh {S} ls | ../../grep x',
+    # copy direction: remote source -> arbitrary LOCAL destination
+    f'scp {S}:/tmp/x /home/tim/.bashrc',
+    f'scp -r {S}:/tmp/dir /home/tim/',
+    f'rsync -av --delete {S}:/tmp/empty/ /home/tim/',
+    f'rsync -av {S}:/tmp/x {S}:/tmp/y',
+    # rsync options with local side effects
+    f'rsync --remove-source-files -a /home/tim/docs {S}:/tmp/x',
+    f'rsync --log-file=/home/tim/.bashrc file {S}:/tmp/x',
+    f'rsync --write-batch=/home/tim/.bashrc -a file {S}:/tmp/x',
+    f'rsync --only-write-batch=/home/tim/.bashrc -a file {S}:/tmp/x',
+    f'rsync --read-batch=/home/tim/batch {S}:/tmp/x',
+    # remote tmp-only policy: path traversal
+    f'scp file {S}:/tmp/../home/tim/.bashrc',
+    f'scp file {S}:tmp/../.bashrc',
+    f'rsync -a dir/ {S}:/tmp/x/../../etc/',
+])
+def test_review_findings_not_auto_allowed(command):
+    assert allow_ssh.check_command(command, TEST_CONFIG) is False, command
+
+
+@pytest.mark.parametrize('command', [
+    f'ssh -tt -p 2222 -i /home/tim/.ssh/id_ed25519 {S} ls',
+    f'ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new {S} ls',
+    f'ssh -o BatchMode=yes -o ServerAliveInterval=30 {S} uptime',
+    'ssh -l tim server.example.com ls',
+    f'ssh -l tim {S} ls',
+    f'ssh -G {S}',
+    f'ssh -A -C -q {S} ls',
+    f'ssh {S} journalctl -n 100 | grep -i error | head -5',
+    f'ssh {S} cat /etc/os-release | /usr/bin/grep NAME',
+    f'ssh {S} cat data.json | jq .items',
+    f'ssh {S} ls | wc -l',
+    f'ssh {S} ls | cut -d: -f1 | tr a-z A-Z | tail -n 3',
+    f"ssh {S} 'cd /srv && ls > /tmp/out; sudo -n true'",   # remote-side operators
+    f'scp -P 2222 -o ConnectTimeout=5 file {S}:/tmp/file',
+    f'scp -r ./dir {S}:/tmp/dir',
+    f'rsync -avz --exclude .git ./dir/ {S}:/tmp/dir/',
+    f'rsync -a --exclude=.git --delete ./dir/ {S}:/tmp/dir/',
+    f'sudo ssh {S} ls',
+])
+def test_review_legitimate_still_allowed(command):
+    assert allow_ssh.check_command(command, TEST_CONFIG) is True, command
+
+
 def test_allow_reason_names_host(monkeypatch, capsys):
     """An allow carries permissionDecisionReason so the user sees why no prompt appeared."""
     monkeypatch.setattr(allow_ssh, 'load_config', lambda: TEST_CONFIG)
@@ -764,30 +892,5 @@ def test_allow_reason_names_host(monkeypatch, capsys):
 
 
 if __name__ == '__main__':
-    # Simple test runner for quick verification without pytest
-    test_funcs = [v for k, v in sorted(globals().items()) if k.startswith('test_') and callable(v)]
-    # Skip tests that need pytest fixtures
-    needs_fixtures = {'test_load_config_missing_file', 'test_end_to_end_allow',
-                      'test_end_to_end_pass', 'test_end_to_end_non_bash',
-                      'test_end_to_end_no_config', 'test_end_to_end_bad_json',
-                      'test_allow_reason_names_host'}
-
-    passed = 0
-    failed = 0
-    skipped = 0
-
-    for func in test_funcs:
-        name = func.__name__
-        if name in needs_fixtures:
-            skipped += 1
-            continue
-        try:
-            func()
-            passed += 1
-            print(f'  PASS: {name}')
-        except Exception as e:
-            failed += 1
-            print(f'  FAIL: {name}: {e}')
-
-    print(f'\n{passed} passed, {failed} failed, {skipped} skipped (need pytest)')
-    sys.exit(1 if failed else 0)
+    # Run via pytest (see ../../../run_hook_tests.py); parametrised tests need it.
+    sys.exit(pytest.main([__file__, '-q']))

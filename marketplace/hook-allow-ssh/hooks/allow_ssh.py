@@ -19,29 +19,36 @@ Fields:
   - user (optional): if specified, only allow SSH as this user
   - permit-root-access (optional, default false): whether to auto-allow
     root-level access. This gates both logging in as root (ssh root@host)
-    and running sudo on the remote host (ssh user@host sudo cmd), since
-    both give full root access.
+    and running sudo/su/doas/pkexec on the remote host, since all give
+    full root access.
 
 Auto-allows:
-  - ssh [flags] [user@]host command
-  - ssh [flags] -l user host command
-  - scp file [user@]host:/tmp/path  (tmp dirs only)
-  - rsync file [user@]host:/tmp/path  (tmp dirs only)
-  - any of the above piped into read-only local filters (grep, awk, head...)
+  - ssh [safe flags] [user@]host [command]
+  - scp [safe flags] LOCAL... [user@]host:/tmp/path   (uploads to tmp dirs only)
+  - rsync [safe flags] LOCAL... [user@]host:/tmp/path (uploads to tmp dirs only)
+  - any of the above piped into read-only local filters (grep, head, jq...)
 
-Never auto-allows anything that would run or write something LOCALLY
-without a prompt:
-  - a second command (`;`, `&`, `&&`, `||`, newline, `$( )`, backticks)
-  - a redirection outside quotes (`>`, `>>`, `<`)
-  - a pipe into anything other than a known read-only filter (`| bash`,
-    `| xargs rm`, `| tee file`)
-  - ssh options whose value the LOCAL client executes or that load an
-    arbitrary config: -o ProxyCommand/LocalCommand/PermitLocalCommand/
-    KnownHostsCommand/Include/Match, and -F <config>
+Security model: an auto-allow skips the permission prompt entirely, so this
+hook is a WHITELIST. Anything it does not positively recognise falls through
+to normal prompting (returns {}), including:
+  - any unquoted shell operator other than `|` (`;` `&` `&&` `||` newline
+    `$( )` backticks) and any redirection (`>` `>>` `<`): a second local
+    command or a local file
+  - `|` into anything but a fixed set of filters that cannot write or execute
+    (so no awk/sed/sort/xargs/bash), named bare or as /usr/bin/x or /bin/x
+  - ssh/scp flags outside a small known-harmless set (e.g. -F -E -I -S -J -W
+    -L -R -D -M -X are refused) and `-o` names outside a known-harmless set
+    (ProxyCommand, LocalCommand, PKCS11Provider, UserKnownHostsFile, HostName,
+    ProxyJump... are refused)
+  - rsync options with local side effects (--rsh/-e, --log-file, --*-batch,
+    --remove-source-files, --daemon, --config, --server/--sender)
+  - a leading VAR=value or `env` (PATH=, LD_PRELOAD=, SUDO_ASKPASS= change how
+    the local binary runs); sudo/nice/nohup/command wrappers are accepted
+  - -l / -o User disagreeing with user@host (ssh honours -l; refuse the
+    ambiguity rather than check the wrong user against the config)
+  - scp/rsync where the remote is not the single final operand (a download
+    writes an arbitrary LOCAL path), or whose remote path escapes tmp via `..`
 Operators inside the quoted remote command run on the remote host and are fine.
-
-Returns {} (no opinion) for everything else, falling through to normal
-permission prompting.
 
 Output protocol: an allow carries permissionDecisionReason (shown to the user
 in the transcript) naming the matched host, so it is clear why no prompt
@@ -52,6 +59,7 @@ than silently passing.
 
 import json
 import os
+import posixpath
 import re
 import shlex
 import sys
@@ -60,26 +68,78 @@ import traceback
 CONFIG_PATH = os.path.expanduser('~/.claude/ssh-allowed-hosts.json')
 CONFIG_DISPLAY = '~/.claude/ssh-allowed-hosts.json'
 
-# SSH flags that take an argument (the next token)
-SSH_FLAGS_WITH_ARG = set('bcDEeFIiJLlmOopQRSwWo')
+# --- ssh client flags -------------------------------------------------------
+# Known-harmless flags only. Anything else (-D -E -F -I -J -L -M -O -R -S -W
+# -w -X -Y -f -g ...) means "no opinion": it binds/forwards local ports, loads
+# a local config/library, writes a local file, runs a local program or talks
+# to a host other than the destination.
+SSH_SAFE_FLAGS_NO_ARG = set('46AaCGKkNnqsTtVvx')
+SSH_SAFE_FLAGS_WITH_ARG = set('bBceilmopQ')
 
-# SSH flags that do NOT take an argument
-SSH_FLAGS_NO_ARG = set('46AaCfGgKkMNnqsTtVvXxYy')
+# scp flags (BSD getopt: options precede operands). Note scp -l is a bandwidth
+# limit, not a user.
+SCP_SAFE_FLAGS_NO_ARG = set('346ABCOpqRrTv')
+SCP_SAFE_FLAGS_WITH_ARG = set('cilPo')
 
-# Local commands a pipeline may feed ssh output into. Anything else (bash, sh,
-# python, xargs, tee, ...) can execute or write locally, so it is not auto-allowed.
-PIPE_FILTERS = {
-    'grep', 'egrep', 'fgrep', 'rg', 'awk', 'gawk', 'sed', 'head', 'tail',
-    'sort', 'uniq', 'wc', 'cut', 'tr', 'cat', 'less', 'more', 'jq', 'column',
-    'nl', 'tac', 'fold', 'fmt', 'paste', 'strings', 'hexdump', 'xxd', 'od',
-}
+# `-o Name=value` names that have no local side effect beyond the connection
+# itself. Compared case-insensitively. Notably absent: ProxyCommand,
+# LocalCommand, PermitLocalCommand, KnownHostsCommand, Include, Match,
+# PKCS11Provider, SecurityKeyProvider, XAuthLocation, UserKnownHostsFile,
+# GlobalKnownHostsFile, ControlPath, ControlMaster, IdentityAgent,
+# LocalForward, RemoteForward, DynamicForward, StreamLocalBindUnlink,
+# HostName, HostKeyAlias, ProxyJump.
+SAFE_SSH_OPTIONS = {name.lower() for name in (
+    'AddKeysToAgent', 'BatchMode', 'CheckHostIP', 'Ciphers',
+    'ClearAllForwardings', 'Compression', 'ConnectTimeout',
+    'ConnectionAttempts', 'ExitOnForwardFailure', 'ForwardAgent',
+    'GSSAPIAuthentication', 'HashKnownHosts', 'HostKeyAlgorithms',
+    'IdentitiesOnly', 'IdentityFile', 'KbdInteractiveAuthentication',
+    'KexAlgorithms', 'LogLevel', 'MACs', 'NumberOfPasswordPrompts',
+    'PasswordAuthentication', 'Port', 'PreferredAuthentications',
+    'PubkeyAcceptedAlgorithms', 'PubkeyAuthentication', 'RequestTTY',
+    'SendEnv', 'ServerAliveCountMax', 'ServerAliveInterval', 'SetEnv',
+    'StrictHostKeyChecking', 'TCPKeepAlive', 'UpdateHostKeys', 'User',
+    'VerifyHostKeyDNS',
+)}
 
-# ssh -o options whose value the LOCAL client executes, or that pull in a
-# config file / matching block which can set those.
-LOCAL_EXEC_OPTIONS = re.compile(
-    r'^\s*(ProxyCommand|LocalCommand|PermitLocalCommand|KnownHostsCommand|Include|Match)\b',
-    re.IGNORECASE,
+# --- rsync options ----------------------------------------------------------
+# rsync (popt) accepts options anywhere. Long options with a local side effect
+# (prefix match, since several take =value or have -format variants):
+RSYNC_UNSAFE_LONG_PREFIXES = (
+    '--rsh', '--log-file', '--write-batch', '--only-write-batch',
+    '--read-batch', '--remove-source-files', '--daemon', '--config',
+    '--server', '--sender', '--files-from', '--dparam',
 )
+# Long options that take a separate argument when written without '='.
+RSYNC_LONG_WITH_SEPARATE_ARG = {
+    '--exclude', '--include', '--filter', '--exclude-from', '--include-from',
+    '--max-size', '--min-size', '--timeout', '--bwlimit', '--chmod', '--chown',
+    '--block-size', '--compress-level', '--temp-dir', '--backup-dir',
+    '--suffix', '--partial-dir', '--out-format', '--log-format',
+    '--compare-dest', '--copy-dest', '--link-dest', '--max-delete',
+    '--modify-window', '--port', '--sockopts', '--address', '--contimeout',
+    '--rsync-path', '--remote-option', '--usermap', '--groupmap', '--checksum-choice',
+    '--info', '--debug', '--stderr', '--iconv', '--skip-compress',
+}
+# Short rsync options that consume the next token when written alone
+# ('-e' is refused outright: it names a local program to run).
+RSYNC_SHORT_WITH_ARG = set('BTfM')
+
+# --- pipelines --------------------------------------------------------------
+# Local commands a pipeline may feed ssh output into: programs that can
+# neither execute anything nor write a file. awk, sed, sort, uniq, xxd, less,
+# more, tee, xargs and every interpreter are deliberately absent.
+PIPE_FILTERS = {
+    'grep', 'egrep', 'fgrep', 'rg', 'head', 'tail', 'wc', 'cut', 'tr', 'cat',
+    'jq', 'column', 'nl', 'tac', 'fold', 'fmt', 'strings', 'hexdump', 'od',
+}
+PIPE_FILTER_DIRS = ('/usr/bin/', '/bin/')
+
+# Remote operand: [user@]host:path (not an absolute/relative local path, not a URL)
+REMOTE_OPERAND = re.compile(r'^(?:([^@:]+)@)?([^@:/][^@:]*):(.*)$')
+
+# Remote commands that escalate to root
+ROOT_ESCALATION = re.compile(r'\b(sudo|su|doas|pkexec)\b')
 
 
 def load_config():
@@ -95,16 +155,12 @@ def load_config():
 
 
 def find_allowed_host(config, host, user):
-    """Check if host/user combination is in the allowed config.
-
-    Returns the config entry if found, None otherwise.
-    """
+    """Return the config entry for host/user, or None."""
     for entry in config:
         if not isinstance(entry, dict):
             continue
         if entry.get('host') != host:
             continue
-        # If entry specifies a user, it must match
         config_user = entry.get('user')
         if config_user is not None and config_user != user:
             continue
@@ -112,220 +168,205 @@ def find_allowed_host(config, host, user):
     return None
 
 
-def parse_ssh_command(tokens):
-    """Parse ssh command tokens to extract host, user, and remote command.
+def split_option(value):
+    """Split an -o value into (name, value).
 
-    Returns (user, host, remote_cmd_tokens) or None if parsing fails.
+    ssh's readconf accepts `Name=value`, `Name value`, and tolerates a leading
+    `=` or whitespace (`-o=ProxyCommand=x` sets ProxyCommand).
+    """
+    value = value.lstrip(' \t=')
+    m = re.match(r'([^\s=]+)[\s=]*(.*)$', value, re.DOTALL)
+    if not m:
+        return '', ''
+    return m.group(1), m.group(2).strip()
 
-    Handles:
-      ssh [options] [user@]hostname [command...]
-      ssh [options] -l user hostname [command...]
+
+def walk_options(tokens, no_arg, with_arg):
+    """Walk BSD-getopt style options (ssh/scp) up to the first operand.
+
+    Returns (index_of_first_operand, user_from_options) or None if any flag is
+    outside the safe sets, any -o name is outside SAFE_SSH_OPTIONS, or an
+    argument is missing. Short flags may be clustered (`-tF cfg`, `-4oOpt=v`),
+    so every character of a cluster is checked.
     """
     i = 0
-    user_from_l = None
-
-    # Walk past options
+    user_opt = None
     while i < len(tokens):
         token = tokens[i]
-
-        if not token.startswith('-'):
-            # First non-option token is the host
-            break
-
         if token == '--':
-            # End of options
             i += 1
             break
-
-        # Handle combined flags like -tt or -vvv
-        # And flags with args like -oOption=val or -p22
-        flag_str = token[1:]  # strip leading '-'
-
-        # Check if it's a long-ish combined form like -oStrictHostKeyChecking=accept-new
-        if len(flag_str) > 1 and flag_str[0] in SSH_FLAGS_WITH_ARG:
-            # The rest of the token is the argument to this flag
-            if flag_str[0] == 'l':
-                user_from_l = flag_str[1:]
-            i += 1
-            continue
-
-        # Walk through the flag characters
+        if not token.startswith('-') or token == '-':
+            break
+        flags = token[1:]
         j = 0
-        consumed_arg = False
-        while j < len(flag_str):
-            ch = flag_str[j]
-            if ch in SSH_FLAGS_WITH_ARG:
-                # If there are more chars after this, they're the arg value
-                if j + 1 < len(flag_str):
-                    if ch == 'l':
-                        user_from_l = flag_str[j + 1:]
-                    consumed_arg = True
-                    break
-                else:
-                    # Next token is the argument
+        while j < len(flags):
+            ch = flags[j]
+            if ch in no_arg:
+                j += 1
+                continue
+            if ch in with_arg:
+                value = flags[j + 1:]
+                if not value:
                     i += 1
-                    if i < len(tokens):
-                        if ch == 'l':
-                            user_from_l = tokens[i]
-                    consumed_arg = True
-                    break
-            elif ch in SSH_FLAGS_NO_ARG:
-                j += 1
-            else:
-                # Unknown flag — skip it
-                j += 1
-
+                    if i >= len(tokens):
+                        return None
+                    value = tokens[i]
+                if ch == 'l' and with_arg is SSH_SAFE_FLAGS_WITH_ARG:
+                    user_opt = value
+                elif ch == 'o':
+                    name, val = split_option(value)
+                    if name.lower() not in SAFE_SSH_OPTIONS:
+                        return None
+                    if name.lower() == 'user':
+                        user_opt = val
+                break
+            return None  # unknown or unsafe flag
         i += 1
+    return i, user_opt
 
-        if consumed_arg:
-            continue
 
+def resolve_user(user_at, user_opt):
+    """Combine user@ and -l / -o User. ssh honours the option; refuse conflicts."""
+    if user_opt is None:
+        return user_at, True
+    if user_at is not None and user_at != user_opt:
+        return None, False
+    return user_opt, True
+
+
+def parse_ssh_command(tokens):
+    """Parse ssh args into (user, host, remote_cmd_tokens), or None.
+
+    None means: unsafe/unknown flag, no destination, or -l/-o User conflicts
+    with user@host.
+    """
+    walked = walk_options(tokens, SSH_SAFE_FLAGS_NO_ARG, SSH_SAFE_FLAGS_WITH_ARG)
+    if walked is None:
+        return None
+    i, user_opt = walked
     if i >= len(tokens):
-        # No host found (e.g., ssh -V)
+        return None  # no host (e.g. ssh -V)
+
+    host_token = tokens[i]
+    remote_cmd = tokens[i + 1:]
+
+    user_at = None
+    host = host_token
+    if '@' in host_token:
+        user_at, host = host_token.split('@', 1)
+    if not host or host.startswith('-'):
         return None
 
-    # tokens[i] is the hostname (possibly user@host)
-    host_token = tokens[i]
-    i += 1
-
-    user = user_from_l
-    host = host_token
-
-    if '@' in host_token:
-        user, host = host_token.split('@', 1)
-
-    # Remaining tokens are the remote command
-    remote_cmd = tokens[i:]
-
+    user, ok = resolve_user(user_at, user_opt)
+    if not ok:
+        return None
     return (user, host, remote_cmd)
 
 
-def has_local_exec_ssh_option(tokens):
-    """True if ssh's own options (before the destination) can run a LOCAL command.
-
-    -o ProxyCommand=... / -oProxyCommand=... (and the other LOCAL_EXEC_OPTIONS)
-    are executed by the local ssh client; -F loads an arbitrary config file
-    that can set any of them.
-    """
-    i = 0
-    while i < len(tokens):
-        token = tokens[i]
-        if token == '--' or not token.startswith('-') or token == '-':
-            return False
-        flag_str = token[1:]
-        if flag_str[0] == 'F':
-            return True
-        if flag_str[0] == 'o':
-            value = flag_str[1:]
-            if not value:
-                i += 1
-                value = tokens[i] if i < len(tokens) else ''
-            if LOCAL_EXEC_OPTIONS.match(value):
-                return True
-            i += 1
-            continue
-        if len(flag_str) == 1 and flag_str in SSH_FLAGS_WITH_ARG:
-            i += 2  # skip the flag's separate value token
-            continue
-        i += 1
-    return False
+def split_remote_operand(token):
+    """Return (user, host, path) if token is [user@]host:path, else None."""
+    if '://' in token:
+        return ('', token, '')  # rsync://... is remote too; never allowed
+    m = REMOTE_OPERAND.match(token)
+    if not m:
+        return None
+    return (m.group(1), m.group(2), m.group(3))
 
 
-def has_local_exec_copy_option(tokens):
-    """True if scp/rsync options name a LOCAL program to run or a config to load.
+def parse_scp_operands(tokens):
+    """scp: walk options, return (operands, user_from_options) or None."""
+    walked = walk_options(tokens, SCP_SAFE_FLAGS_NO_ARG, SCP_SAFE_FLAGS_WITH_ARG)
+    if walked is None:
+        return None
+    i, user_opt = walked
+    return tokens[i:], user_opt
 
-    rsync -e / --rsh and scp -S choose the "remote shell" program, which runs
-    locally; -o <LOCAL_EXEC_OPTIONS> and -F behave as for ssh. Options may
-    appear after operands, so the whole token list is scanned.
-    """
+
+def parse_rsync_operands(tokens):
+    """rsync: skip/validate options anywhere, return operands or None."""
+    operands = []
     i = 0
     while i < len(tokens):
         token = tokens[i]
         if token == '--':
-            return False
-        if not token.startswith('-') or token == '-':
-            i += 1
-            continue
+            operands.extend(tokens[i + 1:])
+            break
         if token.startswith('--'):
-            if token.startswith('--rsh'):
-                return True
+            name = token.split('=', 1)[0]
+            if name.startswith(RSYNC_UNSAFE_LONG_PREFIXES):
+                return None
+            if name in RSYNC_LONG_WITH_SEPARATE_ARG and '=' not in token:
+                i += 2
+                continue
             i += 1
             continue
-        flag_str = token[1:]
-        if 'e' in flag_str or flag_str[0] in 'SF':
-            return True
-        if flag_str[0] == 'o':
-            value = flag_str[1:]
-            if not value:
-                i += 1
-                value = tokens[i] if i < len(tokens) else ''
-            if LOCAL_EXEC_OPTIONS.match(value):
-                return True
+        if token.startswith('-') and token != '-':
+            flags = token[1:]
+            if 'e' in flags:
+                return None  # -e: local remote-shell program
+            if flags[-1] in RSYNC_SHORT_WITH_ARG:
+                i += 2
+                continue
+            i += 1
+            continue
+        operands.append(token)
         i += 1
-    return False
+    return operands
 
 
 def parse_scp_rsync_targets(tokens):
-    """Parse scp/rsync tokens to extract remote targets.
+    """Remote targets ([user@]host:path) among scp/rsync operands.
 
-    Returns list of (user, host, path) tuples for remote targets.
-    Remote targets match the pattern [user@]host:path.
+    Kept for callers/tests that only want the remote operands; the direction
+    check lives in copy_target().
     """
     targets = []
-    i = 0
-
-    # Skip options first
-    while i < len(tokens):
-        token = tokens[i]
-        if token == '--':
-            i += 1
-            break
-        if not token.startswith('-'):
-            break
-        # scp/rsync options that take arguments
-        # Common ones: -P port, -i identity, -F config, -e rsh, -o option
-        if len(token) == 2 and token[1] in 'PiFeoS':
-            i += 2  # skip flag and its argument
+    for token in tokens:
+        if token.startswith('-'):
             continue
-        i += 1
-
-    # Remaining tokens are source(s) and destination
-    # Look for remote targets: [user@]host:path
-    while i < len(tokens):
-        token = tokens[i]
-        # Match user@host:path or host:path
-        # But not absolute paths like /tmp/foo or relative paths
-        # Also not URLs like http://...
-        match = re.match(r'^(?:([^@:]+)@)?([^@:/][^@:]*):(.*)$', token)
-        if match:
-            user = match.group(1)
-            host = match.group(2)
-            path = match.group(3)
-            targets.append((user, host, path))
-        i += 1
-
+        parsed = split_remote_operand(token)
+        if parsed is not None and '://' not in token:
+            targets.append(parsed)
     return targets
 
 
+def copy_target(operands):
+    """The single remote destination of an upload, or None.
+
+    Only `LOCAL... [user@]host:path` is recognised: the last operand must be
+    remote and every earlier one local. A remote source would write to an
+    arbitrary LOCAL path.
+    """
+    if len(operands) < 2:
+        return None
+    for operand in operands[:-1]:
+        if split_remote_operand(operand) is not None:
+            return None
+    target = split_remote_operand(operands[-1])
+    if target is None or '://' in operands[-1]:
+        return None
+    return target
+
+
 def is_tmp_path(path):
-    """Check if a remote path is within a tmp directory.
+    """True if a remote path (after normalising `..`) is within a tmp directory.
 
-    Allows:
-      /tmp/...     — absolute tmp
-      tmp/...      — relative ~/tmp/
-      /var/tmp/... — system tmp
-
-    Empty path (host:) is NOT allowed — that's the home directory.
+    Allows /tmp/..., tmp/... (home-relative), /var/tmp/.... The empty path
+    (host:) is the home directory and is NOT allowed.
     """
     if not path:
         return False
+    norm = posixpath.normpath(path)
+    if norm.startswith('..') or norm == '.':
+        return False
     return (
-        path.startswith('/tmp/')
-        or path == '/tmp'
-        or path.startswith('tmp/')
-        or path == 'tmp'
-        or path.startswith('/var/tmp/')
-        or path == '/var/tmp'
+        norm.startswith('/tmp/')
+        or norm == '/tmp'
+        or norm.startswith('tmp/')
+        or norm == 'tmp'
+        or norm.startswith('/var/tmp/')
+        or norm == '/var/tmp'
     )
 
 
@@ -401,60 +442,56 @@ def has_shell_operators(command):
 
 
 def is_readonly_filter(segment):
-    """True if a pipeline segment is a known read-only local filter."""
+    """True if a pipeline segment is a known filter that cannot write or execute.
+
+    The program must be a bare name in PIPE_FILTERS or that name under
+    /usr/bin or /bin, so `./grep` (a file Claude could have just written) is
+    refused.
+    """
     try:
         tokens = shlex.split(segment)
     except ValueError:
         return False
     if not tokens:
         return False
-    cmd = tokens[0].rsplit('/', 1)[-1]
-    if cmd not in PIPE_FILTERS:
-        return False
-    if cmd == 'sed' and any(
-        t == '--in-place' or (t.startswith('-i') and not t.startswith('--'))
-        for t in tokens[1:]
-    ):
-        return False  # sed -i edits a local file
-    return True
+    prog = tokens[0]
+    if '/' in prog:
+        if not any(prog == d + name for d in PIPE_FILTER_DIRS for name in PIPE_FILTERS):
+            return False
+        prog = prog.rsplit('/', 1)[-1]
+    return prog in PIPE_FILTERS
 
 
 def strip_privilege_prefixes(tokens):
-    """Strip leading privilege/environment wrapper commands.
+    """Strip sudo/nice/nohup/command wrappers.
 
-    Removes: sudo, env, nice, nohup, command, etc.
+    Returns None (refuse) for `env` or any leading VAR=value assignment:
+    PATH=, LD_PRELOAD=, SUDO_ASKPASS=... change which local code runs.
     """
-    privilege_cmds = {'sudo', 'env', 'nice', 'nohup', 'command'}
+    # wrapper -> its flags that consume the next token
+    wrappers = {
+        'sudo': {'-u', '-g', '-C', '-D', '-R', '-T', '-U', '-h', '-p', '-r', '-t'},
+        'nice': {'-n'},
+        'nohup': set(),
+        'command': set(),
+    }
     while tokens:
-        if tokens[0] in privilege_cmds:
+        head = tokens[0]
+        if head == 'env' or re.match(r'^[A-Za-z_]\w*=', head):
+            return None
+        if head not in wrappers:
+            break
+        tokens = tokens[1:]
+        while tokens and tokens[0].startswith('-'):
+            flag = tokens[0]
             tokens = tokens[1:]
-            # Skip sudo flags like -u user, -i, etc.
-            while tokens and tokens[0].startswith('-'):
-                flag = tokens[0]
+            if flag in wrappers[head] and tokens:
                 tokens = tokens[1:]
-                # sudo flags that take an argument
-                if flag in ('-u', '-g', '-C', '-D', '-R', '-T'):
-                    if tokens:
-                        tokens = tokens[1:]
-            continue
-        # env VAR=val ... — skip variable assignments
-        if tokens[0] and '=' in tokens[0] and not tokens[0].startswith('-'):
-            # Could be env FOO=bar cmd — skip the assignment
-            # But only if it looks like VAR=val (starts with letter/underscore)
-            if re.match(r'^[A-Za-z_]\w*=', tokens[0]):
-                tokens = tokens[1:]
-                continue
-        break
     return tokens
 
 
 def allowed_reason(command, config):
-    """Return a short reason string if the command should be auto-allowed, else None.
-
-    Only auto-allows a single ssh/scp/rsync invocation, optionally piped into
-    read-only local filters. See split_pipeline() for what disqualifies a
-    command.
-    """
+    """Return a short reason string if the command should be auto-allowed, else None."""
     if not command:
         return None
 
@@ -462,7 +499,6 @@ def allowed_reason(command, config):
     if segments is None:
         return None
 
-    # Every downstream pipeline stage must be a harmless local filter.
     for segment in segments[1:]:
         if not is_readonly_filter(segment):
             return None
@@ -480,49 +516,51 @@ def allowed_reason(command, config):
     args = tokens[1:]
 
     if cmd == 'ssh':
-        if has_local_exec_ssh_option(args):
-            return None
-
         result = parse_ssh_command(args)
         if result is None:
             return None
-
         user, host, remote_cmd = result
         entry = find_allowed_host(config, host, user)
         if entry is None:
             return None
 
-        # Check if this command requires root-level access:
-        # either logging in as root, or sudo anywhere in the remote command.
-        remote_str = ' '.join(remote_cmd)
-        uses_sudo = bool(re.search(r'\bsudo\b', remote_str))
-        needs_root = user == 'root' or uses_sudo
+        needs_root = user == 'root' or bool(ROOT_ESCALATION.search(' '.join(remote_cmd)))
         if needs_root and not entry.get('permit-root-access', False):
             return None
 
         target = f'{user}@{host}' if user else host
         return f'hook-allow-ssh: ssh {target} is listed in {CONFIG_DISPLAY}'
 
-    elif cmd in ('scp', 'rsync'):
-        if has_local_exec_copy_option(args):
+    if cmd in ('scp', 'rsync'):
+        user_opt = None
+        if cmd == 'scp':
+            parsed = parse_scp_operands(args)
+            if parsed is None:
+                return None
+            operands, user_opt = parsed
+        else:
+            operands = parse_rsync_operands(args)
+            if operands is None:
+                return None
+
+        target = copy_target(operands)
+        if target is None:
+            return None
+        user_at, host, path = target
+        user, ok = resolve_user(user_at, user_opt)
+        if not ok:
             return None
 
-        targets = parse_scp_rsync_targets(args)
-        if not targets:
+        entry = find_allowed_host(config, host, user)
+        if entry is None:
+            return None
+        if user == 'root' and not entry.get('permit-root-access', False):
+            return None
+        if not is_tmp_path(path):
             return None
 
-        names = []
-        for user, host, path in targets:
-            entry = find_allowed_host(config, host, user)
-            if entry is None:
-                return None
-            if user == 'root' and not entry.get('permit-root-access', False):
-                return None
-            if not is_tmp_path(path):
-                return None
-            names.append(f'{user}@{host}' if user else host)
-
-        return (f'hook-allow-ssh: {cmd} to {", ".join(sorted(set(names)))} '
+        name = f'{user}@{host}' if user else host
+        return (f'hook-allow-ssh: {cmd} upload to {name}:{path} '
                 f'(tmp paths only) is listed in {CONFIG_DISPLAY}')
 
     return None
