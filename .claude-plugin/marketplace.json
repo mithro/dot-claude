@@ -204,7 +204,7 @@
     {
       "name": "hook-safe-force-push",
       "description": "Blocks every direct git force push (--force, --force-with-lease, -f, +refspec) \u2014 use git safe-force-push <branch> instead",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "source": "./marketplace/hook-safe-force-push",
       "category": "security"
     },

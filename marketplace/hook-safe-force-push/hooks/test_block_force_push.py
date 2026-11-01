@@ -44,6 +44,18 @@ def decision(command):
     "git push origin +HEAD:main",
     "git push origin feature +main",
     "cd repo && git push -f origin main",
+    # 2026-11-01 review: the most natural spellings were missed
+    "git push origin main --force",
+    "git push origin main -f",
+    "git push -v origin --force",
+    "git push --no-verify origin -f",
+    "git -C repo push --force",
+    "git -C repo push origin main --force",
+    "git push origin '+main'",
+    "git push origin main --force-with-lease=main",
+    # the wrapper exemption must apply per command, not to the whole line
+    "git safe-force-push x && git push --force origin main",
+    "echo 'use git safe-force-push'; git push -f",
 ])
 def test_denies_force_push(command):
     assert decision(command) == "deny", command
@@ -63,6 +75,9 @@ def test_denies_force_push(command):
     "git safe-force-push origin main",
     "git safe-force-push-lease origin main",
     "git fetch origin +refs/heads/*:refs/remotes/origin/*",  # + in a fetch refspec
+    'git commit -m "never git push --force"',   # message text, not a push
+    "echo 'git push -f'",
+    "git push origin main --force-if-includes",   # a no-op without --force-with-lease
 ])
 def test_allows_safe_pushes(command):
     assert decision(command) == "allow", command
