@@ -1,6 +1,6 @@
 {
   "name": "hook-block-stderr-to-null",
   "description": "Blocks commands that silence stderr (2>/dev/null, >/dev/null 2>&1, &>/dev/null, 2>&-) — stderr contains valuable diagnostic information",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": {"name": "Tim Ansell"}
 }

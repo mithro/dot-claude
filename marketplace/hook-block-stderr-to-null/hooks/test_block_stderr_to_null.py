@@ -45,6 +45,12 @@ def decision(command):
     "ls 2>&-",
     "make 2>/dev/null | tail",
     "cmd1 && cmd2 2>/dev/null",
+    # 2026-11-01 review
+    'ls 2>"/dev/null"',
+    "ls 2>'/dev/null'",
+    "ls>/dev/null 2>&1",             # no space before the operator
+    "ls&>/dev/null",
+    'echo "$(ls 2>/dev/null)"',      # $( ) inside double quotes still runs
 ])
 def test_denies_silenced_stderr(command):
     assert decision(command) == "deny", command
@@ -60,6 +66,11 @@ def test_denies_silenced_stderr(command):
     "ls >/dev/null && other 2>&1",   # 2>&1 belongs to a different command
     "ls >/dev/null; other 2>&1",
     "grep -r foo . 2>&1 | head",
+    # 2026-11-01 review: text inside quotes is not a redirection
+    'git commit -m "stop using 2>/dev/null"',
+    "grep -rn '2>/dev/null' marketplace/",
+    'echo "2>/dev/null is bad"',
+    "ls 12>/dev/null",               # fd 12, not stderr
 ])
 def test_allows_visible_stderr(command):
     assert decision(command) == "allow", command
