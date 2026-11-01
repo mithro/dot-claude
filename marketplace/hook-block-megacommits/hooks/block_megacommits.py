@@ -35,10 +35,18 @@ DEFAULT_MAX_LINES = 400
 
 OVERRIDE_TOKEN = "ALLOW_MEGACOMMIT=1"
 
-# Detects a `git commit` invocation. The negative lookahead prevents matching
-# `git commit-tree` / `git commit-graph` (which are followed by `-` or a word
-# char) while still matching `git commit`, `git commit -m`, `git commit --amend`.
-COMMIT_RE = re.compile(r"\bgit\s+commit(?![\w-])")
+# Detects a `git commit` invocation, allowing git's global options in between
+# (`git -C /repo commit`, `git -c x=y commit`, `git --no-pager commit`). The
+# negative lookahead prevents matching `git commit-tree` / `git commit-graph`
+# (which are followed by `-` or a word char) while still matching `git commit`,
+# `git commit -m`, `git commit --amend`.
+COMMIT_RE = re.compile(
+    r"\bgit(?:\s+-[Cc]\s+\S+|\s+--?[\w-]+(?:=\S+)?)*\s+commit(?![\w-])"
+)
+
+# git global options that consume the next token.
+GIT_GLOBAL_WITH_ARG = {"-C", "-c", "--git-dir", "--work-tree", "--namespace",
+                       "--super-prefix", "--config-env"}
 
 # Short option letters that consume the rest of the cluster (or the next token)
 # as their VALUE. Once one of these is seen in a `-xyz` cluster, remaining
@@ -108,20 +116,21 @@ def int_env(name, default):
 
 
 def parse_commit_invocation(command):
-    """Inspect the command for the first `git commit` and return (all_mode, cd_dir).
+    """Inspect the command for the first `git commit`; return (all_mode, cd_dir, c_dir).
 
     all_mode: True when -a / --all is present (commits all tracked modified
               files, not just the staged ones), which changes how we measure.
     cd_dir:   directory from a leading `cd <dir> &&` so we measure the right
               repo; None when absent.
+    c_dir:    directory from `git -C <dir> commit`; None when absent.
 
-    Best-effort and quote-aware via shlex; returns (False, None) if the command
-    cannot be tokenized.
+    Best-effort and quote-aware via shlex; returns (False, None, None) if the
+    command cannot be tokenized.
     """
     try:
         tokens = shlex.split(command, comments=False, posix=True)
     except ValueError:
-        return (False, None)
+        return (False, None, None)
 
     cd_dir = None
     if len(tokens) >= 2 and tokens[0] == "cd":
@@ -129,11 +138,21 @@ def parse_commit_invocation(command):
 
     control_ops = {"&&", "||", ";", "|", "&"}
     all_mode = False
+    c_dir = None
 
     i = 0
     while i < len(tokens) - 1:
-        if tokens[i] == "git" and tokens[i + 1] == "commit":
-            j = i + 2
+        if tokens[i] == "git":
+            # Skip git's global options to find the subcommand.
+            k = i + 1
+            while k < len(tokens) and tokens[k].startswith("-"):
+                if tokens[k] == "-C" and k + 1 < len(tokens):
+                    c_dir = tokens[k + 1]
+                k += 2 if tokens[k] in GIT_GLOBAL_WITH_ARG else 1
+            if k >= len(tokens) or tokens[k] != "commit":
+                i = k
+                continue
+            j = k + 1
             while j < len(tokens) and tokens[j] not in control_ops:
                 token = tokens[j]
                 if token == "--":
@@ -151,18 +170,22 @@ def parse_commit_invocation(command):
             break
         i += 1
 
-    return (all_mode, cd_dir)
+    return (all_mode, cd_dir, c_dir)
 
 
 def run_git(repo_dir, args):
-    """Run a git subcommand in repo_dir; return CompletedProcess (or None)."""
+    """Run a git subcommand in repo_dir; return CompletedProcess (or None).
+
+    Up to three git calls per hook run must fit the 10 s hook timeout in
+    hooks.json, hence 3 s each.
+    """
     try:
         return subprocess.run(
             ["git", *args],
             cwd=repo_dir,
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=3,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -289,11 +312,13 @@ def main():
         allow()
         return
 
-    all_mode, cd_dir = parse_commit_invocation(command)
+    all_mode, cd_dir, c_dir = parse_commit_invocation(command)
 
     repo_dir = input_data.get("cwd") or os.getcwd()
-    if cd_dir:
-        repo_dir = cd_dir if os.path.isabs(cd_dir) else os.path.join(repo_dir, cd_dir)
+    for sub_dir in (cd_dir, c_dir):
+        if sub_dir:
+            sub_dir = os.path.expanduser(sub_dir)
+            repo_dir = sub_dir if os.path.isabs(sub_dir) else os.path.join(repo_dir, sub_dir)
 
     git_dir = resolve_git_dir(repo_dir)
     if git_dir is None:

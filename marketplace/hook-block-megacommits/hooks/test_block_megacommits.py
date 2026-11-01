@@ -23,6 +23,11 @@ from pathlib import Path
 HOOK = Path(__file__).resolve().parent / "block_megacommits.py"
 GIT_ID = ["-c", "user.email=test@example.com", "-c", "user.name=Test"]
 
+# Isolate from the developer's own git config (commit.gpgsign, core.hooksPath,
+# init.templateDir...) for both the test's git calls and the hook's.
+os.environ["GIT_CONFIG_GLOBAL"] = os.devnull
+os.environ["GIT_CONFIG_NOSYSTEM"] = "1"
+
 # Project-local scratch root (never /tmp, per house rules); cleaned up at exit.
 SCRATCH_BASE = Path.cwd() / "tmp"
 SCRATCH_BASE.mkdir(parents=True, exist_ok=True)
@@ -110,6 +115,12 @@ try:
     write_lines(r, "README", 600)  # modify tracked file, leave unstaged
     expect("git commit -am 'all'", r, deny=True, label="-am sweeps large unstaged tracked change")
 
+    r = new_repo()
+    many_files(r, 20)
+    elsewhere = tempfile.mkdtemp(dir=RUN_DIR)
+    expect(f"git -C {r} commit -m 'many files'", elsewhere, deny=True,
+           label="git -C <repo> commit is measured in <repo>, not cwd (2026-11-01 review)")
+
     print("\nMust ALLOW:")
 
     r = new_repo()
@@ -192,6 +203,10 @@ try:
 
 finally:
     shutil.rmtree(RUN_DIR, ignore_errors=True)
+    try:
+        SCRATCH_BASE.rmdir()  # only if we were the sole user of tmp/
+    except OSError:
+        pass
 
 print()
 if failures:
