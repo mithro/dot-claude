@@ -125,6 +125,27 @@ bash(
     "allow",
     "ssh -o HashKnownHosts=no host uptime",
 )
+bash(
+    "ssh -o HashKnownHosts=true (ssh accepts true as yes)",
+    "deny",
+    "ssh -o HashKnownHosts=true host uptime",
+)
+
+# --- 2026-11-01 review: common wrappers around the ssh tool -----------------
+
+bash("xargs ssh-keyscan -H", "deny", "echo github.com | xargs ssh-keyscan -H")
+bash("xargs -n1 ssh-keyscan -H", "deny", "cat hosts | xargs -n 1 ssh-keyscan -H")
+bash("timeout N ssh-keyscan -H", "deny", "timeout 5 ssh-keyscan -H github.com")
+bash("timeout -k 1 N ssh-keyscan -H", "deny", "timeout -k 1 5 ssh-keyscan -H github.com")
+bash("bash -c 'ssh-keyscan -H'", "deny", "bash -c 'ssh-keyscan -H github.com'")
+bash("sh -c with ssh -o HashKnownHosts=yes", "deny", "sh -c 'ssh -o HashKnownHosts=yes host'")
+bash(
+    "GIT_SSH_COMMAND carrying HashKnownHosts=yes",
+    "deny",
+    "GIT_SSH_COMMAND='ssh -o HashKnownHosts=yes' git fetch",
+)
+bash("timeout around a clean ssh", "allow", "timeout 5 ssh host uptime")
+bash("xargs around a clean ssh-keyscan", "allow", "echo github.com | xargs ssh-keyscan -t ed25519")
 
 # --- non-ssh commands are never the hook's business -------------------------
 
@@ -170,6 +191,28 @@ check(
     "allow",
     "Write",
     {"file_path": "/home/tim/project/test_hook.py", "content": HASH_YES + "\n"},
+)
+check(
+    "Write enabling hashing with 'true' in ~/.ssh/config",
+    "deny",
+    "Write",
+    {"file_path": "/home/tim/.ssh/config", "content": "HashKnownHosts" + " true\n"},
+)
+check(
+    "Edit of a neighbouring line keeps an existing HashKnownHosts yes as context",
+    "allow",
+    "Edit",
+    {"file_path": "/home/tim/.ssh/config",
+     "old_string": "Host *\n    " + HASH_YES + "\n    User root\n",
+     "new_string": "Host *\n    " + HASH_YES + "\n    User tim\n"},
+)
+check(
+    "Edit adding a second HashKnownHosts yes is still denied",
+    "deny",
+    "Edit",
+    {"file_path": "/home/tim/.ssh/config",
+     "old_string": "Host *\n    " + HASH_YES + "\n",
+     "new_string": "Host *\n    " + HASH_YES + "\nHost lab\n    " + HASH_YES + "\n"},
 )
 
 # --- output protocol ---------------------------------------------------------

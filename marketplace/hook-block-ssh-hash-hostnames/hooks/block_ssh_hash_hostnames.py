@@ -9,7 +9,13 @@ For ssh itself, only ssh's own options are checked: everything after the
 destination is the remote command, which is checked recursively as its own
 shell command (so `ssh host 'ipmitool -H ...'` is fine, but both
 `ssh -H host` and `ssh host 'ssh-keyscan -H ...'` are blocked).
+
+Wrappers are looked through: sudo/env/nice/nohup/timeout/xargs/..., `bash -c
+'...'`, and a leading VAR=value whose value is itself an ssh command
+(GIT_SSH_COMMAND='ssh -o HashKnownHosts=yes').
 """
+
+from __future__ import annotations
 
 import json
 import re
@@ -20,8 +26,27 @@ from pathlib import Path
 
 SSH_TOOLS = {'ssh', 'ssh-keyscan', 'ssh-keygen', 'ssh-copy-id', 'ssh-add'}
 
-# Wrappers that may precede the real command.
-PREFIX_CMDS = {'sudo', 'env', 'nice', 'nohup', 'command'}
+# Wrappers that may precede the real command -> the wrapper's own options that
+# consume the next token.
+PREFIX_CMDS: dict[str, set[str]] = {
+    'sudo': {'-u', '-g', '-C', '-D', '-R', '-T', '-U', '-h', '-p', '-r', '-t'},
+    'doas': {'-u', '-C'},
+    'env': {'-u', '-C', '-S', '--unset', '--chdir', '--split-string'},
+    'nice': {'-n'},
+    'nohup': set(),
+    'command': set(),
+    'time': {'-f', '-o'},
+    'stdbuf': {'-i', '-o', '-e'},
+    'xargs': {'-n', '-I', '-P', '-L', '-s', '-d', '-E', '-a', '-l',
+              '--max-args', '--max-procs', '--max-lines', '--replace',
+              '--delimiter', '--arg-file', '--max-chars'},
+    'timeout': {'-k', '-s', '--kill-after', '--signal'},
+}
+# Wrappers that take positional arguments before the command (timeout DURATION).
+PREFIX_POSITIONALS = {'timeout': 1}
+
+# Shells whose -c argument is a command string of its own.
+SHELLS = {'bash', 'sh', 'zsh', 'dash', 'ksh'}
 
 # ssh client options that consume a following argument (OpenSSH 9.x).
 SSH_ARG_OPTS = set('BbcDEeFIiJLlmOopQRSWw')
@@ -29,7 +54,8 @@ SSH_ARG_OPTS = set('BbcDEeFIiJLlmOopQRSWw')
 # Tokens that end one simple command and start another.
 COMMAND_SEPARATORS = {'&&', '||', '|', '|&', ';', ';;', '&', '(', ')'}
 
-HASH_OPTION_ENABLED = re.compile(r'HashKnownHosts[\s=]+(yes|1)\b', re.IGNORECASE)
+# ssh accepts yes/true/1 for boolean options.
+HASH_OPTION_ENABLED = re.compile(r'HashKnownHosts[\s=]+(yes|true|1)\b', re.IGNORECASE)
 
 SSH_CONFIG_PATH = re.compile(r'(^|/)(\.ssh/|etc/ssh/)|(^|/)ssh_config')
 
@@ -127,16 +153,40 @@ def check_tool_args(tool_name: str, args: list[str]) -> str | None:
     return None
 
 
-def check_simple_command(tokens: list[str]) -> str | None:
-    # Strip wrapper commands and leading VAR=VALUE assignments.
-    while tokens and (
-        tokens[0] in PREFIX_CMDS
-        or ('=' in tokens[0] and not tokens[0].startswith('-'))
-    ):
+def strip_wrapper(name: str, tokens: list[str]) -> list[str]:
+    """Drop a wrapper's own options (and positionals) to reach the wrapped command."""
+    arg_opts = PREFIX_CMDS[name]
+    while tokens and tokens[0].startswith('-') and tokens[0] != '-':
+        opt = tokens[0]
         tokens = tokens[1:]
+        if opt in arg_opts and tokens:
+            tokens = tokens[1:]
+    return tokens[PREFIX_POSITIONALS.get(name, 0):]
+
+
+def check_simple_command(tokens: list[str]) -> str | None:
+    tokens = list(tokens)
+    while tokens:
+        head = tokens[0].rsplit('/', 1)[-1]
+        if '=' in tokens[0] and not tokens[0].startswith('-'):
+            # Leading VAR=value: the value may itself be an ssh command line
+            # (GIT_SSH_COMMAND='ssh -o HashKnownHosts=yes').
+            reason = check_bash_command(tokens[0].split('=', 1)[1])
+            if reason:
+                return reason
+            tokens = tokens[1:]
+        elif head in PREFIX_CMDS:
+            tokens = strip_wrapper(head, tokens[1:])
+        else:
+            break
     if not tokens:
         return None
     tool_name = tokens[0].rsplit('/', 1)[-1]
+    if tool_name in SHELLS and '-c' in tokens[1:]:
+        script_index = tokens.index('-c', 1) + 1
+        if script_index < len(tokens):
+            return check_bash_command(tokens[script_index])
+        return None
     if tool_name not in SSH_TOOLS:
         return None
     if tool_name == 'ssh':
@@ -175,20 +225,25 @@ def check_file_edit(tool_input: dict) -> str | None:
     if not SSH_CONFIG_PATH.search(file_path):
         return None
 
-    # new_string (Edit tool) or content (Write tool)
-    text = tool_input.get('new_string', '') or tool_input.get('content', '') or ''
+    def enabled_lines(text: str) -> int:
+        # Comment lines don't count (SSH config uses # for comments).
+        return sum(
+            1 for line in (text or '').splitlines()
+            if not line.lstrip().startswith('#') and HASH_OPTION_ENABLED.search(line)
+        )
 
-    for line in text.splitlines():
-        # Skip comment lines (SSH config uses # for comments)
-        if line.lstrip().startswith('#'):
-            continue
-        if HASH_OPTION_ENABLED.search(line):
-            return (
-                "BLOCKED: Do not set HashKnownHosts to yes.\n"
-                "This hashes hostnames making known_hosts unreadable.\n"
-                "Use 'HashKnownHosts no' or omit the setting."
-            )
+    if 'new_string' in tool_input:  # Edit tool: deny only if the edit ADDS one
+        added = enabled_lines(tool_input.get('new_string', '')) > enabled_lines(
+            tool_input.get('old_string', ''))
+    else:  # Write tool
+        added = enabled_lines(tool_input.get('content', '')) > 0
 
+    if added:
+        return (
+            "BLOCKED: Do not set HashKnownHosts to yes.\n"
+            "This hashes hostnames making known_hosts unreadable.\n"
+            "Use 'HashKnownHosts no' or omit the setting."
+        )
     return None
 
 
