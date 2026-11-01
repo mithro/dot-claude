@@ -1,6 +1,6 @@
 {
   "name": "hook-block-ssh-unsafe-options",
   "description": "Blocks StrictHostKeyChecking=no and UserKnownHostsFile=/dev/null (either -o spelling, or written to an ssh config) — these disable SSH host verification",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": {"name": "Tim Ansell"}
 }

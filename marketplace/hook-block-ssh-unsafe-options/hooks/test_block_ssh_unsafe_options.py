@@ -57,6 +57,11 @@ def bash(command):
     "ssh -o GlobalKnownHostsFile=/dev/null host",
     "ssh -o 'UserKnownHostsFile=/dev/null' host",
     "ssh -tto StrictHostKeyChecking=no host",
+    "sftp -o StrictHostKeyChecking=no host",
+    "sudo ssh -o StrictHostKeyChecking=no host",
+    "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git fetch",
+    "rsync -e 'ssh -o UserKnownHostsFile=/dev/null' a host:/tmp/",
+    "/usr/bin/ssh -o StrictHostKeyChecking=no host",
 ])
 def test_denies_unsafe_cli_options(command):
     assert bash(command) == "deny", command
@@ -102,6 +107,9 @@ def test_denies_edit_that_adds_a_second_unsafe_line():
     "ssh -o UserKnownHostsFile=~/.ssh/known_hosts_project host",
     "ssh host",
     "grep -r StrictHostKeyChecking=no docs/",     # not an ssh -o option
+    # round-2 review: an audit grep whose flag cluster ends in o
+    "grep -rno StrictHostKeyChecking=no .",
+    "grep -o 'UserKnownHostsFile /dev/null' ~/.ssh/config",
 ])
 def test_allows_safe_cli_options(command):
     assert bash(command) == "allow", command

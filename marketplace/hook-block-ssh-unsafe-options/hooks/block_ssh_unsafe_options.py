@@ -72,15 +72,20 @@ ssh -o UserKnownHostsFile=~/.ssh/known_hosts_project user@host
 # tolerates a leading `=`/whitespace in the value (`-o=Opt=val`), and the
 # "off" value is spelled no/off/false. Known-hosts: both the user and the
 # global file can be pointed at /dev/null.
-OPT_PREFIX = r"""-[A-Za-z0-9]*o\s*['"]?[\s=]*"""
+# The option must belong to an ssh/scp/sftp invocation earlier in the same
+# simple command (incl. `/usr/bin/ssh`, `GIT_SSH_COMMAND='ssh ...'`,
+# `rsync -e 'ssh ...'`), so an audit like `grep -rno StrictHostKeyChecking=no .`
+# is not mistaken for one.
+SSH_INVOCATION = r"""(?:^|[\s'"/=(`])(?:auto)?(?:ssh|scp|sftp)\s[^|;&\n]*?"""
+OPT_PREFIX = r"""(?<![\w-])-[A-Za-z0-9]*o\s*['"]?[\s=]*"""
 
 STRICT_HOST_KEY_NO_CLI = re.compile(
-    OPT_PREFIX + r"StrictHostKeyChecking[\s=]+(?:no|off|false)\b",
+    SSH_INVOCATION + OPT_PREFIX + r"StrictHostKeyChecking[\s=]+(?:no|off|false)\b",
     re.IGNORECASE,
 )
 
 KNOWN_HOSTS_DEV_NULL_CLI = re.compile(
-    OPT_PREFIX + r"(?:User|Global)KnownHostsFile[\s=]+/dev/null\b",
+    SSH_INVOCATION + OPT_PREFIX + r"(?:User|Global)KnownHostsFile[\s=]+/dev/null\b",
     re.IGNORECASE,
 )
 
