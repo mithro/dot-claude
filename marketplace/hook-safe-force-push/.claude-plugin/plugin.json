@@ -1,6 +1,6 @@
 {
   "name": "hook-safe-force-push",
-  "description": "Blocks unsafe git push --force/--force-with-lease without explicit branch — use git safe-force-push instead",
-  "version": "1.0.0",
+  "description": "Blocks every direct git force push (--force, --force-with-lease, -f, +refspec) — use git safe-force-push <branch> instead",
+  "version": "1.1.0",
   "author": {"name": "Tim Ansell"}
 }
