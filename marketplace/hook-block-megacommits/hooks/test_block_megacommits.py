@@ -167,14 +167,28 @@ try:
     r = new_repo()
     expect("git commit --amend -m 'reword'", r, deny=False, label="amend with nothing newly staged")
 
-    print("\nMalformed input — must ALLOW (don't break Claude on bad input):")
-    result = subprocess.run(["python3", str(HOOK)], input=b"not json", capture_output=True, check=True)
+    print("\nOutput protocol:")
+    r = new_repo()
+    many_files(r, 20)
+    payload = {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'many files'"}, "cwd": r}
+    result = subprocess.run(["python3", str(HOOK)], input=json.dumps(payload).encode(),
+                            capture_output=True, check=True)
     out = json.loads(result.stdout or "{}")
-    if out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny":
-        failures.append("malformed JSON should not deny")
-        print("  FAIL malformed input not allowed through")
+    reason = out.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+    if "20 files" in reason and "ALLOW_MEGACOMMIT=1" in reason:
+        print("  OK   deny reason (counts + override hint) is in permissionDecisionReason")
     else:
-        print("  OK   malformed input passes through")
+        failures.append(f"deny reason missing from permissionDecisionReason: {out!r}")
+        print("  FAIL deny reason missing from permissionDecisionReason")
+
+    print("\nMalformed input — must fail open VISIBLY (exit 1, traceback on stderr, no decision):")
+    result = subprocess.run(["python3", str(HOOK)], input=b"not json", capture_output=True)
+    if (result.returncode == 1 and not result.stdout.strip()
+            and b"block_megacommits" in result.stderr):
+        print("  OK   malformed input -> exit 1 with error on stderr")
+    else:
+        failures.append(f"malformed input: exit={result.returncode} stdout={result.stdout!r}")
+        print(f"  FAIL malformed input: exit={result.returncode} stdout={result.stdout!r}")
 
 finally:
     shutil.rmtree(RUN_DIR, ignore_errors=True)

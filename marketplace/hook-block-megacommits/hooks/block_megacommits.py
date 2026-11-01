@@ -27,6 +27,7 @@ import re
 import shlex
 import subprocess
 import sys
+import traceback
 
 
 DEFAULT_MAX_FILES = 15
@@ -76,13 +77,17 @@ def allow():
 
 
 def deny(message):
-    """Emit a deny decision with a user-facing message and exit."""
+    """Emit a deny decision.
+
+    permissionDecisionReason is what the model sees; systemMessage is for the user.
+    """
     print(
         json.dumps(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
+                    "permissionDecisionReason": message,
                 },
                 "systemMessage": message,
             }
@@ -263,11 +268,7 @@ Thresholds are configurable via MEGACOMMIT_MAX_FILES / MEGACOMMIT_MAX_LINES."""
 
 
 def main():
-    try:
-        input_data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        allow()
-        return
+    input_data = json.load(sys.stdin)
 
     if input_data.get("tool_name") != "Bash":
         allow()
@@ -328,5 +329,10 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception:  # fail open: never block a commit due to a hook bug
-        allow()
+    except Exception:
+        # Fail open (never block a commit because of a hook bug), but visibly:
+        # exit 1 is a non-blocking hook error whose stderr Claude Code shows to
+        # the user. Exit 0 with `{}` would hide the bug.
+        print(f"{os.path.basename(__file__)}: hook failed, allowing the commit:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
