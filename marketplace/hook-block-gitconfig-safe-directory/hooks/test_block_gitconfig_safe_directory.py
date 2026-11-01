@@ -149,14 +149,23 @@ expect(edit("/home/tim/.gitconfig", "name = old\n", "name = new\n"), deny=False,
 expect(edit("/home/tim/docs/safe.md", "", "[safe] section discussion"), deny=False, label="Edit non-gitconfig doc that mentions [safe]")
 expect(edit("/home/tim/README.md", "", "Use `git config --add safe.directory /path` if needed"), deny=False, label="Edit README mentioning command (not a gitconfig)")
 
-print("\nMalformed input — must ALLOW (don't break Claude on bad input):")
-result = subprocess.run(["python3", str(HOOK)], input=b"not json", capture_output=True, check=True)
-out = json.loads(result.stdout or "{}")
-if out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny":
-    failures.append("FAIL  malformed JSON should not deny")
-    print("  FAIL malformed input not allowed through")
+print("\nOutput protocol:")
+out = run(bash("git config --global --add safe.directory /"))
+reason = out.get("hookSpecificOutput", {}).get("permissionDecisionReason", "")
+if "safe.directory" in reason and "chown" in reason:
+    print("  OK   deny reason is in permissionDecisionReason (shown to the model)")
 else:
-    print("  OK   malformed input passes through")
+    failures.append(f"FAIL  deny reason missing from permissionDecisionReason: {out!r}")
+    print("  FAIL deny reason missing from permissionDecisionReason")
+
+print("\nMalformed input — must fail open VISIBLY (exit 1, traceback on stderr, no decision):")
+result = subprocess.run(["python3", str(HOOK)], input=b"not json", capture_output=True)
+if (result.returncode == 1 and not result.stdout.strip()
+        and b"block_gitconfig_safe_directory" in result.stderr):
+    print("  OK   malformed input -> exit 1 with error on stderr")
+else:
+    failures.append(f"FAIL  malformed input: exit={result.returncode} stdout={result.stdout!r}")
+    print(f"  FAIL malformed input: exit={result.returncode} stdout={result.stdout!r}")
 
 print()
 if failures:

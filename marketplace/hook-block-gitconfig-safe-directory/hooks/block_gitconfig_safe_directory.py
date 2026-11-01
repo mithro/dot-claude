@@ -32,6 +32,8 @@ uv) for fast cold-start, and depends only on the stdlib.
 import json
 import re
 import sys
+import traceback
+from pathlib import Path
 
 
 # A path is treated as a gitconfig if its basename is one of the canonical
@@ -113,10 +115,12 @@ git config --global --remove-section safe
 
 
 def make_deny(message: str) -> str:
+    """permissionDecisionReason is what the model sees; systemMessage is for the user."""
     return json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
+            "permissionDecisionReason": message,
         },
         "systemMessage": message,
     })
@@ -181,11 +185,7 @@ def find_blocked_bash_segment(command: str) -> str | None:
 
 
 def main() -> None:
-    try:
-        data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        print(make_allow())
-        return
+    data = json.load(sys.stdin)
 
     tool_name = data.get("tool_name", "")
     tool_input = data.get("tool_input", {}) or {}
@@ -214,4 +214,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Fail open, but visibly: exit 1 is a non-blocking hook error whose
+        # stderr Claude Code shows to the user. Exit 0 with `{}` would hide the bug.
+        print(f"{Path(__file__).name}: hook failed, allowing the tool call:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
