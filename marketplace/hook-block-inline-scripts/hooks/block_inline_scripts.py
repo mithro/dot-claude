@@ -2,21 +2,34 @@
 """PreToolUse hook: block inline code that requires escaping/quoting.
 
 Blocks patterns where code is embedded in a command line in ways that
-require shell escaping or quoting — `python -c "..."`, unquoted heredocs
-(`<< EOF` where variables expand), and double-quoted heredocs (`<<"EOF"`).
+require shell escaping or quoting — `python -c "..."` (with any interpreter
+flags before `-c`, e.g. `python -I -c`), unquoted heredocs (`<< EOF` where
+variables expand), and double-quoted heredocs (`<<"EOF"`).
 
 Allows:
   - Single-quoted heredocs (`<<'EOF'`) — no expansion, no escaping needed
   - $(cat <<'EOF' ...) — used for commit messages and PR bodies
   - Normal script execution (`uv run python3 ./script.py`)
+
+Out of scope (by design, keep the rule narrow): other interpreters' inline
+forms such as `bash -c`, `node -e`, `perl -e`, and python flags that take a
+value before `-c` (`python -X dev -c ...`).
+
+Output protocol: a deny carries the explanation in
+hookSpecificOutput.permissionDecisionReason (the field Claude Code shows to the
+model) and repeats it in systemMessage (shown to the user). If the hook itself
+fails it exits 1 with a traceback on stderr: a non-blocking error that lets the
+tool call proceed but is visible, rather than silently approving.
 """
 
 import json
 import re
 import sys
+import traceback
+from pathlib import Path
 
 
-DENY_PYTHON_C = """\u274c **`python -c` blocked by hook**
+DENY_PYTHON_C = """❌ **`python -c` blocked by hook**
 
 Inline `python -c "..."` requires shell escaping of quotes, backslashes,
 and special characters. This is fragile and error-prone.
@@ -33,7 +46,7 @@ uv run python3 ./tmp/my_script.py
 # 3. Clean up when done
 ```"""
 
-DENY_UNQUOTED_HEREDOC = """\u274c **Unquoted/double-quoted heredoc blocked by hook**
+DENY_UNQUOTED_HEREDOC = """❌ **Unquoted/double-quoted heredoc blocked by hook**
 
 Heredocs without single-quoted delimiters perform variable expansion
 and require escaping of `$`, backticks, and backslashes inside the body.
@@ -60,9 +73,12 @@ Or write the content to a file first using the Write tool."""
 
 # --- Patterns ---
 
-# python -c / python3 -c (with optional uv run prefix)
+# python -c, with any number of boolean interpreter flags in between:
+#   python -c, python3 -c, python3.13 -c, /usr/bin/python3 -c,
+#   uv run python -I -c, python3 -u -B -c
+# `-c` must be a whole token; `python3 -m pytest -c x` is pytest's own -c.
 PYTHON_DASH_C = re.compile(
-    r'(?:uv\s+run\s+)?python[23]?\s+-c\s',
+    r"(?:^|[\s/])python[23]?(?:\.\d+)?\s+(?:-[A-Za-z]+\s+)*-c(?:\s|$)",
 )
 
 # Heredoc with single-quoted delimiter — SAFE, allow these
@@ -76,73 +92,63 @@ SAFE_HEREDOC = re.compile(
 # Any heredoc operator (to find ones that aren't single-quoted)
 # Matches: << EOF, <<EOF, <<"EOF", <<-EOF, <<- "EOF", etc.
 # Requires << to be preceded by whitespace or start-of-string
-# (avoids matching << inside quoted strings like echo "use << for")
 ANY_HEREDOC = re.compile(
     r'(?:^|\s)(<<-?\s*"?\w)',
     re.MULTILINE,
 )
 
 
-def find_unsafe_heredocs(command):
-    """Check if command has heredocs that aren't single-quoted.
+def deny(message):
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": message,
+        },
+        "systemMessage": message,
+    }))
 
-    Returns True if there are unsafe (unquoted or double-quoted) heredocs.
-    """
-    # Find all heredoc positions
+
+def allow():
+    print(json.dumps({}))
+
+
+def find_unsafe_heredocs(command):
+    """True if the command has heredocs that aren't single-quoted."""
     all_heredocs = list(ANY_HEREDOC.finditer(command))
     if not all_heredocs:
         return False
 
-    # Find all safe (single-quoted) heredoc positions
     safe_positions = {m.start() for m in SAFE_HEREDOC.finditer(command)}
-
-    # If any heredoc start position isn't in the safe set, it's unsafe
-    for m in all_heredocs:
-        if m.start() not in safe_positions:
-            return True
-
-    return False
+    return any(m.start() not in safe_positions for m in all_heredocs)
 
 
 def main():
-    try:
-        input_data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        print(json.dumps({}))
-        return
+    input_data = json.load(sys.stdin)
 
-    tool_name = input_data.get("tool_name", "")
-    if tool_name != "Bash":
-        print(json.dumps({}))
+    if input_data.get("tool_name") != "Bash":
+        allow()
         return
 
     command = input_data.get("tool_input", {}).get("command", "")
 
-    # Check for python -c (always blocked)
     if PYTHON_DASH_C.search(command):
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-            },
-            "systemMessage": DENY_PYTHON_C,
-        }))
+        deny(DENY_PYTHON_C)
         return
 
-    # Check for unsafe heredocs (unquoted or double-quoted delimiters)
     if find_unsafe_heredocs(command):
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-            },
-            "systemMessage": DENY_UNQUOTED_HEREDOC,
-        }))
+        deny(DENY_UNQUOTED_HEREDOC)
         return
 
-    # No match — allow
-    print(json.dumps({}))
+    allow()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Fail open, but visibly: exit 1 is a non-blocking hook error whose
+        # stderr Claude Code shows to the user. Exit 0 with `{}` would hide the bug.
+        print(f"{Path(__file__).name}: hook failed, allowing the tool call:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
