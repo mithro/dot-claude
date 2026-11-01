@@ -211,7 +211,7 @@
     {
       "name": "hook-block-gitconfig-safe-directory",
       "description": "Blocks adding [safe]/safe.directory entries to any gitconfig \u2014 fix file ownership instead",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "source": "./marketplace/hook-block-gitconfig-safe-directory",
       "category": "security"
     },

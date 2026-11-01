@@ -68,6 +68,12 @@ expect(bash("cd /home && git config --global --add safe.directory /opt"), deny=T
 expect(bash("git config --unset other.thing && git config --add safe.directory /"), deny=True, label="unset other; then add safe (chained)")
 expect(bash("git -c color.ui=never config --global --add safe.directory /"), deny=True, label="git with -c flag then add safe")
 expect(bash("git -C /repo config --add safe.directory /"), deny=True, label="git -C <path> config add safe")
+# 2026-11-01 review
+expect(bash("git config --global --add Safe.Directory /"), deny=True, label="git config keys are case-insensitive")
+expect(bash("git config --global --add safe.directory / # --get"), deny=True, label="read flag only inside a trailing comment")
+expect(bash("printf '[safe]\\n\\tdirectory = /\\n' >> ~/.gitconfig"), deny=True, label="shell append of [safe] to ~/.gitconfig")
+expect(bash("echo 'safe.directory = /' >> /home/tim/.gitconfig"), deny=True, label="shell append of safe.directory to a gitconfig")
+expect(bash("cat > /home/tim/proj/.git/config <<'EOF'\n[safe]\n\tdirectory = /\nEOF"), deny=True, label="heredoc write of [safe] to .git/config")
 
 print("\nBash — must ALLOW:")
 expect(bash("git config --unset safe.directory /home/tim/repo"), deny=False, label="--unset safe.directory")
@@ -81,6 +87,8 @@ expect(bash("git config user.name foo"), deny=False, label="unrelated git config
 expect(bash("git status"), deny=False, label="unrelated git command")
 expect(bash("ls -la /home"), deny=False, label="non-git command")
 expect(bash("echo 'safe.directory' > /tmp/note"), deny=False, label="echo string mentioning safe.directory (no git config)")
+expect(bash("git config --global --get Safe.Directory"), deny=False, label="--get with mixed-case key")
+expect(bash("echo '[safe]' >> notes.md"), deny=False, label="shell append of [safe] to a non-gitconfig file")
 
 print("\nWrite — must BLOCK:")
 expect(write("/home/tim/.gitconfig", "[safe]\n\tdirectory = /\n"), deny=True, label="Write ~/.gitconfig with [safe]")

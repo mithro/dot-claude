@@ -27,10 +27,16 @@ It allows:
 
 Hooks fire on every matching tool call, so this script uses python3 (not
 uv) for fast cold-start, and depends only on the stdlib.
+
+Out of scope: `git config --file <other>` and `[include]`d files whose names
+are not gitconfig-like, and `GIT_CONFIG_*` environment variables.
 """
+
+from __future__ import annotations
 
 import json
 import re
+import shlex
 import sys
 import traceback
 from pathlib import Path
@@ -64,14 +70,23 @@ GIT_CONFIG = re.compile(
     r"\bgit\b(?:\s+-[A-Za-z]\S*(?:\s+\S+)?|\s+--[A-Za-z][\w-]*(?:[= ]\S+)?)*\s+config\b"
 )
 
-SAFE_DIRECTORY_REF = re.compile(r"\bsafe\.directory\b")
+# git config keys are case-insensitive (Safe.Directory works).
+SAFE_DIRECTORY_REF = re.compile(r"\bsafe\.directory\b", re.IGNORECASE)
 
 # Flags that make a `git config safe.directory ...` invocation safe (read or
-# remove). `--edit` opens an editor, which is user-driven, so allow.
-READ_OR_REMOVE = re.compile(
-    r"--(?:unset|unset-all|remove-section|get|get-all|get-regexp"
-    r"|list|edit|show-origin|show-scope)\b"
-)
+# remove). `--edit` opens an editor, which is user-driven, so allow. Matched
+# as whole tokens so a flag inside a trailing `# comment` does not count.
+READ_OR_REMOVE_FLAGS = {
+    "--unset", "--unset-all", "--remove-section", "--get", "--get-all",
+    "--get-regexp", "--list", "-l", "--edit", "-e", "--show-origin", "--show-scope",
+}
+
+# A shell redirection into a file: `>> ~/.gitconfig`, `> "$HOME/.gitconfig"`.
+REDIRECT_TARGET = re.compile(r""">>?\s*['"]?([^\s'"|;&]+)""")
+
+# `[safe]` / `safe.directory` as they would appear in shell text being written
+# into a gitconfig (printf/echo/heredoc).
+SAFE_IN_SHELL_TEXT = re.compile(r"\[\s*safe\b|\bsafe\.directory\b", re.IGNORECASE)
 
 
 DENY_MESSAGE = """❌ **Adding [safe]/safe.directory to gitconfig is blocked**
@@ -178,10 +193,29 @@ def find_blocked_bash_segment(command: str) -> str | None:
             continue
         if not SAFE_DIRECTORY_REF.search(segment):
             continue
-        if READ_OR_REMOVE.search(segment):
+        try:
+            tokens = shlex.split(segment, comments=True)
+        except ValueError:
+            tokens = segment.split()
+        if READ_OR_REMOVE_FLAGS.intersection(tokens):
             continue
         return segment
     return None
+
+
+def shell_writes_safe_to_gitconfig(command: str) -> bool:
+    """True if the command redirects shell text mentioning [safe] into a gitconfig.
+
+    Covers `printf '[safe]...' >> ~/.gitconfig`, `echo 'safe.directory = /' >>
+    .git/config` and heredocs into a gitconfig path. Checked on the whole
+    command because a heredoc body spans several lines.
+    """
+    if not command or not SAFE_IN_SHELL_TEXT.search(command):
+        return False
+    return any(
+        is_gitconfig_path(target.replace("$HOME", "~"))
+        for target in REDIRECT_TARGET.findall(command)
+    )
 
 
 def main() -> None:
@@ -191,7 +225,8 @@ def main() -> None:
     tool_input = data.get("tool_input", {}) or {}
 
     if tool_name == "Bash":
-        if find_blocked_bash_segment(tool_input.get("command", "")):
+        command = tool_input.get("command", "")
+        if find_blocked_bash_segment(command) or shell_writes_safe_to_gitconfig(command):
             print(make_deny(DENY_MESSAGE))
             return
 
