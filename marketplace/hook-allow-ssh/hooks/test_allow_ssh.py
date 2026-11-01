@@ -830,6 +830,10 @@ R = 'tim@restricted.example.com'   # allowed host, NO root access
     f"ssh {S} ls | less '+!rm -rf ~'",
     f'ssh {S} ls | ./grep x',
     f'ssh {S} ls | ../../grep x',
+    # round-2 review: ripgrep's --pre runs a local preprocessor per file
+    f"ssh {S} echo hi | rg --pre ~/evil.sh --pre-glob '*' x /etc/hostname",
+    f'ssh {S} cat x | rg --pre=/home/tim/evil x /etc/hostname',
+    f'ssh {S} ls | rg x',
     # copy direction: remote source -> arbitrary LOCAL destination
     f'scp {S}:/tmp/x /home/tim/.bashrc',
     f'scp -r {S}:/tmp/dir /home/tim/',

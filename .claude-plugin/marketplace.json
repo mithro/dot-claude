@@ -197,7 +197,7 @@
     {
       "name": "hook-allow-ssh",
       "description": "Auto-allows SSH/scp/rsync to configured hosts (never anything that also runs or writes locally) \u2014 eliminates repeated permission prompts for trusted machines",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "source": "./marketplace/hook-allow-ssh",
       "category": "security"
     },

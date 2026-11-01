@@ -50,6 +50,11 @@ to normal prompting (returns {}), including:
     writes an arbitrary LOCAL path), or whose remote path escapes tmp via `..`
 Operators inside the quoted remote command run on the remote host and are fine.
 
+Deliberately allowed although they reach beyond the connection: -A (agent
+forwarding), SendEnv/SetEnv and ForwardAgent expose the local agent or
+environment to the REMOTE host. They run and write nothing locally, and the
+remote is a host the user listed as trusted.
+
 Output protocol: an allow carries permissionDecisionReason (shown to the user
 in the transcript) naming the matched host, so it is clear why no prompt
 appeared. If the hook itself fails it exits 1 with a traceback on stderr: a
@@ -128,9 +133,10 @@ RSYNC_SHORT_WITH_ARG = set('BTfM')
 # --- pipelines --------------------------------------------------------------
 # Local commands a pipeline may feed ssh output into: programs that can
 # neither execute anything nor write a file. awk, sed, sort, uniq, xxd, less,
-# more, tee, xargs and every interpreter are deliberately absent.
+# more, tee, xargs and every interpreter are deliberately absent, and so is rg:
+# `rg --pre CMD` runs CMD on every file it searches.
 PIPE_FILTERS = {
-    'grep', 'egrep', 'fgrep', 'rg', 'head', 'tail', 'wc', 'cut', 'tr', 'cat',
+    'grep', 'egrep', 'fgrep', 'head', 'tail', 'wc', 'cut', 'tr', 'cat',
     'jq', 'column', 'nl', 'tac', 'fold', 'fmt', 'strings', 'hexdump', 'od',
 }
 PIPE_FILTER_DIRS = ('/usr/bin/', '/bin/')
