@@ -193,6 +193,34 @@ def test_cp_to_tmp_in_second_command_still_denied():
     assert denied("ls && cp a.txt /tmp/a.txt")
 
 
+# 2026-11-01 review: the cp/mv check must see the whole simple command, with
+# quotes and substitutions intact, and must only fire on a /tmp DESTINATION.
+
+def test_cp_with_substituted_source_to_tmp_denied():
+    assert denied('cp "$(ls | head -1)" /tmp/x')
+
+
+def test_cp_with_quoted_separator_in_source_denied():
+    assert denied("cp 'a;b' /tmp/x")
+
+
+def test_mv_multiple_sources_to_tmp_dir_denied():
+    assert denied("mv a b /tmp/")
+
+
+def test_cp_target_directory_flag_denied():
+    assert denied("cp -t /tmp/x a b")
+
+
+def test_cp_from_tmp_to_local_allowed():
+    """Reading out of /tmp (e.g. the harness scratchpad) is not creation in /tmp."""
+    assert not denied("cp /tmp/claude-1000/x/out.json ./tmp/")
+
+
+def test_mv_out_of_tmp_allowed():
+    assert not denied("mv /tmp/x/a ./a")
+
+
 def test_bad_input_fails_open_with_visible_error():
     """Non-JSON stdin: exit 1 (non-blocking), nothing on stdout, error on stderr."""
     proc = subprocess.run([sys.executable, HOOK], input='not json',

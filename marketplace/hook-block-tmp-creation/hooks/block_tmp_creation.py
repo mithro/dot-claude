@@ -12,6 +12,7 @@ system handle those).
 import json
 import os
 import re
+import shlex
 import sys
 import traceback
 
@@ -23,10 +24,12 @@ REDIRECT_TO_TMP = re.compile(r'[0-9&]*>{1,2}\s*"?/tmp/')
 # tee /tmp/... (with optional flags)
 TEE_TO_TMP = re.compile(r'\btee\s+(-[a-zA-Z]+\s+)*/tmp/')
 
-# cp/mv ... /tmp/... within ONE simple command (the [^|;&\n]* stops at command
-# separators so `echo 'cp a b' && grep x /tmp/log` is not mistaken for a copy;
-# the trailing \s ensures there's a source arg before the /tmp destination)
-CP_MV_TO_TMP = re.compile(r'\b(cp|mv)\b[^|;&\n]*\s"?/tmp/')
+# cp/mv are checked per simple command by cp_mv_to_tmp() below: only a /tmp
+# DESTINATION counts (copying out of /tmp is a read), and the command is split
+# quote- and substitution-aware so `cp "$(ls | head -1)" /tmp/x` is one command.
+COPY_COMMANDS = {'cp', 'mv'}
+COPY_WRAPPERS = {'sudo', 'env', 'nice', 'nohup', 'command'}
+COPY_OPTS_WITH_ARG = {'-S', '--suffix', '-t', '--target-directory'}
 
 # mkdir /tmp/... (with optional flags)
 MKDIR_TMP = re.compile(r'\bmkdir\s+(-[a-zA-Z]+\s+)*"?/tmp/')
@@ -69,7 +72,6 @@ MKTEMP_CUSTOM_DIR = re.compile(r'\bmktemp\b.*(?:-p\s+|--tmpdir[= ])(?!"?/tmp)(?!
 BASH_CREATION_PATTERNS = [
     REDIRECT_TO_TMP,
     TEE_TO_TMP,
-    CP_MV_TO_TMP,
     MKDIR_TMP,
     TOUCH_TMP,
     ASSIGN_TMP,
@@ -138,6 +140,98 @@ def check_file_path(tool_input):
     return None
 
 
+def split_simple_commands(command):
+    """Split on unquoted `|` `;` `&` `(` `)` and newlines.
+
+    Quotes and `$( ... )` substitutions are kept intact, so each piece is one
+    simple command as the shell would see it.
+    """
+    segments = []
+    current = []
+    quote = None
+    depth = 0
+    i = 0
+    n = len(command)
+    while i < n:
+        ch = command[i]
+        if quote is not None:
+            if quote == '"' and ch == '\\':
+                current.append(command[i:i + 2])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            current.append(ch)
+            i += 1
+            continue
+        if ch == '\\':
+            current.append(command[i:i + 2])
+            i += 2
+            continue
+        if ch in '\'"':
+            quote = ch
+        elif command.startswith('$(', i):
+            depth += 1
+            current.append('$(')
+            i += 2
+            continue
+        elif ch == ')' and depth > 0:
+            depth -= 1
+        elif depth == 0 and ch in '|;&()\n':
+            segments.append(''.join(current))
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    segments.append(''.join(current))
+    return segments
+
+
+def is_tmp_dest(path):
+    return path == '/tmp' or path.startswith('/tmp/')
+
+
+def cp_mv_to_tmp(segment):
+    """True if this simple command is a cp/mv whose destination is in /tmp."""
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        return False
+    while tokens and (tokens[0] in COPY_WRAPPERS
+                      or ('=' in tokens[0] and not tokens[0].startswith('-'))):
+        tokens = tokens[1:]
+    if not tokens or tokens[0].rsplit('/', 1)[-1] not in COPY_COMMANDS:
+        return False
+
+    operands = []
+    i = 1
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == '--':
+            operands.extend(tokens[i + 1:])
+            break
+        if tok in ('-t', '--target-directory'):
+            if i + 1 < len(tokens) and is_tmp_dest(tokens[i + 1]):
+                return True
+            i += 2
+            continue
+        if tok.startswith('--target-directory='):
+            if is_tmp_dest(tok.split('=', 1)[1]):
+                return True
+            i += 1
+            continue
+        if tok in COPY_OPTS_WITH_ARG:
+            i += 2
+            continue
+        if tok.startswith('-') and len(tok) > 1:
+            i += 1
+            continue
+        operands.append(tok)
+        i += 1
+    return len(operands) >= 2 and is_tmp_dest(operands[-1])
+
+
 def check_bash(command):
     """Check if a Bash command creates files in /tmp."""
     # Skip commands that contain git commit/tag/notes — any /tmp references
@@ -149,6 +243,10 @@ def check_bash(command):
     for pattern in BASH_CREATION_PATTERNS:
         if pattern.search(command):
             return make_deny(DENY_MESSAGE)
+
+    # cp/mv with a /tmp destination, judged one simple command at a time
+    if any(cp_mv_to_tmp(segment) for segment in split_simple_commands(command)):
+        return make_deny(DENY_MESSAGE)
 
     # mktemp: deny if present without a custom non-/tmp directory
     if MKTEMP_PRESENT.search(command):
