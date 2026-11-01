@@ -27,9 +27,27 @@ Auto-allows:
   - ssh [flags] -l user host command
   - scp file [user@]host:/tmp/path  (tmp dirs only)
   - rsync file [user@]host:/tmp/path  (tmp dirs only)
+  - any of the above piped into read-only local filters (grep, awk, head...)
+
+Never auto-allows anything that would run or write something LOCALLY
+without a prompt:
+  - a second command (`;`, `&`, `&&`, `||`, newline, `$( )`, backticks)
+  - a redirection outside quotes (`>`, `>>`, `<`)
+  - a pipe into anything other than a known read-only filter (`| bash`,
+    `| xargs rm`, `| tee file`)
+  - ssh options whose value the LOCAL client executes or that load an
+    arbitrary config: -o ProxyCommand/LocalCommand/PermitLocalCommand/
+    KnownHostsCommand/Include/Match, and -F <config>
+Operators inside the quoted remote command run on the remote host and are fine.
 
 Returns {} (no opinion) for everything else, falling through to normal
 permission prompting.
+
+Output protocol: an allow carries permissionDecisionReason (shown to the user
+in the transcript) naming the matched host, so it is clear why no prompt
+appeared. If the hook itself fails it exits 1 with a traceback on stderr: a
+non-blocking error that falls back to normal prompting but is visible, rather
+than silently passing.
 """
 
 import json
@@ -37,14 +55,31 @@ import os
 import re
 import shlex
 import sys
+import traceback
 
 CONFIG_PATH = os.path.expanduser('~/.claude/ssh-allowed-hosts.json')
+CONFIG_DISPLAY = '~/.claude/ssh-allowed-hosts.json'
 
 # SSH flags that take an argument (the next token)
 SSH_FLAGS_WITH_ARG = set('bcDEeFIiJLlmOopQRSwWo')
 
 # SSH flags that do NOT take an argument
 SSH_FLAGS_NO_ARG = set('46AaCfGgKkMNnqsTtVvXxYy')
+
+# Local commands a pipeline may feed ssh output into. Anything else (bash, sh,
+# python, xargs, tee, ...) can execute or write locally, so it is not auto-allowed.
+PIPE_FILTERS = {
+    'grep', 'egrep', 'fgrep', 'rg', 'awk', 'gawk', 'sed', 'head', 'tail',
+    'sort', 'uniq', 'wc', 'cut', 'tr', 'cat', 'less', 'more', 'jq', 'column',
+    'nl', 'tac', 'fold', 'fmt', 'paste', 'strings', 'hexdump', 'xxd', 'od',
+}
+
+# ssh -o options whose value the LOCAL client executes, or that pull in a
+# config file / matching block which can set those.
+LOCAL_EXEC_OPTIONS = re.compile(
+    r'^\s*(ProxyCommand|LocalCommand|PermitLocalCommand|KnownHostsCommand|Include|Match)\b',
+    re.IGNORECASE,
+)
 
 
 def load_config():
@@ -165,6 +200,71 @@ def parse_ssh_command(tokens):
     return (user, host, remote_cmd)
 
 
+def has_local_exec_ssh_option(tokens):
+    """True if ssh's own options (before the destination) can run a LOCAL command.
+
+    -o ProxyCommand=... / -oProxyCommand=... (and the other LOCAL_EXEC_OPTIONS)
+    are executed by the local ssh client; -F loads an arbitrary config file
+    that can set any of them.
+    """
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == '--' or not token.startswith('-') or token == '-':
+            return False
+        flag_str = token[1:]
+        if flag_str[0] == 'F':
+            return True
+        if flag_str[0] == 'o':
+            value = flag_str[1:]
+            if not value:
+                i += 1
+                value = tokens[i] if i < len(tokens) else ''
+            if LOCAL_EXEC_OPTIONS.match(value):
+                return True
+            i += 1
+            continue
+        if len(flag_str) == 1 and flag_str in SSH_FLAGS_WITH_ARG:
+            i += 2  # skip the flag's separate value token
+            continue
+        i += 1
+    return False
+
+
+def has_local_exec_copy_option(tokens):
+    """True if scp/rsync options name a LOCAL program to run or a config to load.
+
+    rsync -e / --rsh and scp -S choose the "remote shell" program, which runs
+    locally; -o <LOCAL_EXEC_OPTIONS> and -F behave as for ssh. Options may
+    appear after operands, so the whole token list is scanned.
+    """
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == '--':
+            return False
+        if not token.startswith('-') or token == '-':
+            i += 1
+            continue
+        if token.startswith('--'):
+            if token.startswith('--rsh'):
+                return True
+            i += 1
+            continue
+        flag_str = token[1:]
+        if 'e' in flag_str or flag_str[0] in 'SF':
+            return True
+        if flag_str[0] == 'o':
+            value = flag_str[1:]
+            if not value:
+                i += 1
+                value = tokens[i] if i < len(tokens) else ''
+            if LOCAL_EXEC_OPTIONS.match(value):
+                return True
+        i += 1
+    return False
+
+
 def parse_scp_rsync_targets(tokens):
     """Parse scp/rsync tokens to extract remote targets.
 
@@ -229,42 +329,94 @@ def is_tmp_path(path):
     )
 
 
-def has_shell_operators(command):
-    """Check if command contains shell operators that chain multiple commands.
+def split_pipeline(command):
+    """Split a command on unquoted `|` into pipeline segments.
 
-    Returns True if the command contains &&, ||, ;, backticks, or $()
-    which would cause additional commands to execute alongside an SSH
-    command. Pipes (|) are allowed since they just pipe SSH output to
-    a local filter and don't execute independent commands.
+    Returns None if the command contains any other unquoted shell operator,
+    because each of those lets something run or be written LOCALLY alongside
+    the ssh invocation:
+      ; & && || newline   -> a second local command
+      $( ) and backticks  -> a local command substitution (also inside "...")
+      > >> <              -> a local file is created/overwritten/read
+    Operators inside single quotes (or non-expanding parts of double quotes)
+    are part of the remote command and are left alone.
     """
-    # Ignore operators inside quotes by using shlex to tokenize
-    # and checking the raw command for unquoted operators.
-    # Simple approach: look for operators outside of single/double quotes.
+    segments = []
+    current = []
     in_single = False
     in_double = False
     i = 0
-    while i < len(command):
+    n = len(command)
+    while i < n:
         ch = command[i]
-        if ch == "'" and not in_double:
-            in_single = not in_single
-        elif ch == '"' and not in_single:
-            in_double = not in_double
-        elif ch == '\\' and in_double:
-            i += 1  # skip escaped char
-        elif not in_single and not in_double:
-            # Check for shell operators
-            if ch == ';':
-                return True
-            if ch == '`':
-                return True
-            if ch == '&' and i + 1 < len(command) and command[i + 1] == '&':
-                return True
-            if ch == '|' and i + 1 < len(command) and command[i + 1] == '|':
-                return True
-            if ch == '$' and i + 1 < len(command) and command[i + 1] == '(':
-                return True
+        nxt = command[i + 1] if i + 1 < n else ''
+        if in_single:
+            if ch == "'":
+                in_single = False
+            current.append(ch)
+        elif in_double:
+            if ch == '\\':
+                current.append(ch)
+                if nxt:
+                    current.append(nxt)
+                    i += 1
+            elif ch == '"':
+                in_double = False
+                current.append(ch)
+            elif ch == '`' or (ch == '$' and nxt == '('):
+                return None  # command substitution expands inside double quotes
+            else:
+                current.append(ch)
+        else:
+            if ch == "'":
+                in_single = True
+                current.append(ch)
+            elif ch == '"':
+                in_double = True
+                current.append(ch)
+            elif ch == '\\':
+                current.append(ch)
+                if nxt:
+                    current.append(nxt)
+                    i += 1
+            elif ch == '|':
+                if nxt == '|':
+                    return None
+                segments.append(''.join(current))
+                current = []
+            elif ch in ';&\n`<>':
+                return None
+            elif ch == '$' and nxt == '(':
+                return None
+            else:
+                current.append(ch)
         i += 1
-    return False
+    segments.append(''.join(current))
+    return segments
+
+
+def has_shell_operators(command):
+    """True if the command chains, substitutes or redirects outside quotes."""
+    return split_pipeline(command) is None
+
+
+def is_readonly_filter(segment):
+    """True if a pipeline segment is a known read-only local filter."""
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    cmd = tokens[0].rsplit('/', 1)[-1]
+    if cmd not in PIPE_FILTERS:
+        return False
+    if cmd == 'sed' and any(
+        t == '--in-place' or (t.startswith('-i') and not t.startswith('--'))
+        for t in tokens[1:]
+    ):
+        return False  # sed -i edits a local file
+    return True
 
 
 def strip_privilege_prefixes(tokens):
@@ -296,53 +448,49 @@ def strip_privilege_prefixes(tokens):
     return tokens
 
 
-def check_command(command, config):
-    """Check a bash command against the allowed hosts config.
+def allowed_reason(command, config):
+    """Return a short reason string if the command should be auto-allowed, else None.
 
-    Returns True if the command should be auto-allowed, False otherwise.
-
-    Only auto-allows single ssh/scp/rsync invocations. Commands with
-    shell operators (&&, ||, ;, $(), backticks) are never auto-allowed
-    because they could execute arbitrary commands alongside the SSH.
-    Pipes (|) are allowed since they just filter SSH output locally.
+    Only auto-allows a single ssh/scp/rsync invocation, optionally piped into
+    read-only local filters. See split_pipeline() for what disqualifies a
+    command.
     """
     if not command:
-        return False
+        return None
 
-    # Don't auto-allow compound commands — they could sneak in
-    # arbitrary commands alongside a valid SSH invocation.
-    if has_shell_operators(command):
-        return False
+    segments = split_pipeline(command)
+    if segments is None:
+        return None
 
-    # Handle pipes: split on | and check the first segment is SSH.
-    # The pipe destination is a local filter (grep, awk, etc.) — safe.
-    segments = command.split('|')
-    ssh_segment = segments[0].strip()
+    # Every downstream pipeline stage must be a harmless local filter.
+    for segment in segments[1:]:
+        if not is_readonly_filter(segment):
+            return None
 
     try:
-        tokens = shlex.split(ssh_segment)
+        tokens = shlex.split(segments[0].strip())
     except ValueError:
-        return False
-
-    if not tokens:
-        return False
+        return None
 
     tokens = strip_privilege_prefixes(tokens)
     if not tokens:
-        return False
+        return None
 
     cmd = tokens[0]
     args = tokens[1:]
 
     if cmd == 'ssh':
+        if has_local_exec_ssh_option(args):
+            return None
+
         result = parse_ssh_command(args)
         if result is None:
-            return False
+            return None
 
         user, host, remote_cmd = result
         entry = find_allowed_host(config, host, user)
         if entry is None:
-            return False
+            return None
 
         # Check if this command requires root-level access:
         # either logging in as root, or sudo anywhere in the remote command.
@@ -350,35 +498,52 @@ def check_command(command, config):
         uses_sudo = bool(re.search(r'\bsudo\b', remote_str))
         needs_root = user == 'root' or uses_sudo
         if needs_root and not entry.get('permit-root-access', False):
-            return False
+            return None
 
-        return True
+        target = f'{user}@{host}' if user else host
+        return f'hook-allow-ssh: ssh {target} is listed in {CONFIG_DISPLAY}'
 
     elif cmd in ('scp', 'rsync'):
+        if has_local_exec_copy_option(args):
+            return None
+
         targets = parse_scp_rsync_targets(args)
         if not targets:
-            return False
+            return None
 
+        names = []
         for user, host, path in targets:
             entry = find_allowed_host(config, host, user)
             if entry is None:
-                return False
+                return None
             if user == 'root' and not entry.get('permit-root-access', False):
-                return False
+                return None
             if not is_tmp_path(path):
-                return False
+                return None
+            names.append(f'{user}@{host}' if user else host)
 
-        return True
+        return (f'hook-allow-ssh: {cmd} to {", ".join(sorted(set(names)))} '
+                f'(tmp paths only) is listed in {CONFIG_DISPLAY}')
 
-    return False
+    return None
 
 
-def make_allow():
-    """Return a permission-granting response."""
+def check_command(command, config):
+    """True if the command should be auto-allowed, False otherwise."""
+    return allowed_reason(command, config) is not None
+
+
+def make_allow(reason):
+    """Return a permission-granting response.
+
+    For "allow", permissionDecisionReason is shown to the user (not the model),
+    which is what we want: it explains why no permission prompt appeared.
+    """
     return json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
+            "permissionDecisionReason": reason,
         },
     })
 
@@ -389,11 +554,7 @@ def make_pass():
 
 
 def main():
-    try:
-        input_data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        print(make_pass())
-        return
+    input_data = json.load(sys.stdin)
 
     tool_name = input_data.get('tool_name', '')
     if tool_name != 'Bash':
@@ -410,11 +571,20 @@ def main():
         print(make_pass())
         return
 
-    if check_command(command, config):
-        print(make_allow())
+    reason = allowed_reason(command, config)
+    if reason:
+        print(make_allow(reason))
     else:
         print(make_pass())
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception:
+        # Fail open (fall back to normal prompting), but visibly: exit 1 is a
+        # non-blocking hook error whose stderr Claude Code shows to the user.
+        print(f"{os.path.basename(__file__)}: hook failed, falling back to prompting:",
+              file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
