@@ -168,8 +168,8 @@
     },
     {
       "name": "hook-block-stderr-to-null",
-      "description": "Blocks commands that redirect stderr to /dev/null \u2014 stderr contains valuable diagnostic information",
-      "version": "1.0.0",
+      "description": "Blocks commands that silence stderr (2>/dev/null, >/dev/null 2>&1, &>/dev/null, 2>&-) \u2014 stderr contains valuable diagnostic information",
+      "version": "1.1.0",
       "source": "./marketplace/hook-block-stderr-to-null",
       "category": "security"
     },
@@ -182,15 +182,15 @@
     },
     {
       "name": "hook-block-inline-scripts",
-      "description": "Blocks inline code execution (python -c, heredocs) \u2014 write to a file first, then execute it",
-      "version": "1.0.0",
+      "description": "Blocks inline code execution (python [flags] -c, heredocs) \u2014 write to a file first, then execute it",
+      "version": "1.1.0",
       "source": "./marketplace/hook-block-inline-scripts",
       "category": "security"
     },
     {
       "name": "hook-block-ssh-unsafe-options",
-      "description": "Blocks StrictHostKeyChecking=no and UserKnownHostsFile=/dev/null \u2014 these disable SSH host verification",
-      "version": "1.0.0",
+      "description": "Blocks StrictHostKeyChecking=no and UserKnownHostsFile=/dev/null (either -o spelling, or written to an ssh config) \u2014 these disable SSH host verification",
+      "version": "1.1.0",
       "source": "./marketplace/hook-block-ssh-unsafe-options",
       "category": "security"
     },
@@ -203,8 +203,8 @@
     },
     {
       "name": "hook-safe-force-push",
-      "description": "Blocks unsafe git push --force/--force-with-lease without explicit branch \u2014 use git safe-force-push instead",
-      "version": "1.0.0",
+      "description": "Blocks every direct git force push (--force, --force-with-lease, -f, +refspec) \u2014 use git safe-force-push <branch> instead",
+      "version": "1.1.0",
       "source": "./marketplace/hook-safe-force-push",
       "category": "security"
     },
