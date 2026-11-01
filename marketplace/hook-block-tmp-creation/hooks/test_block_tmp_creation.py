@@ -180,3 +180,23 @@ def test_main_allows_read_only_bash():
     out = run_hook({'tool_name': 'Bash',
                     'tool_input': {'command': 'du -sh /tmp'}})
     assert out == {}
+
+
+# --- regex scoping / fail-open visibility ---
+
+def test_cp_in_earlier_command_does_not_taint_tmp_read():
+    """`cp` in one command and a /tmp path in a later read-only one are unrelated."""
+    assert not denied("echo 'cp a b' && grep foo /tmp/x.log")
+
+
+def test_cp_to_tmp_in_second_command_still_denied():
+    assert denied("ls && cp a.txt /tmp/a.txt")
+
+
+def test_bad_input_fails_open_with_visible_error():
+    """Non-JSON stdin: exit 1 (non-blocking), nothing on stdout, error on stderr."""
+    proc = subprocess.run([sys.executable, HOOK], input='not json',
+                          capture_output=True, text=True)
+    assert proc.returncode == 1
+    assert proc.stdout.strip() == ''
+    assert 'block_tmp_creation' in proc.stderr

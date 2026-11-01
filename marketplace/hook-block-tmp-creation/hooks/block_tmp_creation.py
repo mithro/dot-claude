@@ -10,8 +10,10 @@ system handle those).
 """
 
 import json
+import os
 import re
 import sys
+import traceback
 
 # --- Bash command patterns that create files in /tmp ---
 
@@ -21,8 +23,10 @@ REDIRECT_TO_TMP = re.compile(r'[0-9&]*>{1,2}\s*"?/tmp/')
 # tee /tmp/... (with optional flags)
 TEE_TO_TMP = re.compile(r'\btee\s+(-[a-zA-Z]+\s+)*/tmp/')
 
-# cp/mv ... /tmp/... (the .+\s ensures there's a source arg before /tmp dest)
-CP_MV_TO_TMP = re.compile(r'\b(cp|mv)\b.+\s"?/tmp/')
+# cp/mv ... /tmp/... within ONE simple command (the [^|;&\n]* stops at command
+# separators so `echo 'cp a b' && grep x /tmp/log` is not mistaken for a copy;
+# the trailing \s ensures there's a source arg before the /tmp destination)
+CP_MV_TO_TMP = re.compile(r'\b(cp|mv)\b[^|;&\n]*\s"?/tmp/')
 
 # mkdir /tmp/... (with optional flags)
 MKDIR_TMP = re.compile(r'\bmkdir\s+(-[a-zA-Z]+\s+)*"?/tmp/')
@@ -155,12 +159,7 @@ def check_bash(command):
 
 
 def main():
-    try:
-        input_data = json.load(sys.stdin)
-    except (json.JSONDecodeError, EOFError):
-        # Can't parse input -- allow the operation
-        print(make_allow())
-        return
+    input_data = json.load(sys.stdin)
 
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
@@ -185,4 +184,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # Fail open, but visibly: exit 1 is a non-blocking hook error whose
+        # stderr Claude Code shows to the user. Exit 0 with `{}` would hide the bug.
+        print(f"{os.path.basename(__file__)}: hook failed, allowing the tool call:", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
