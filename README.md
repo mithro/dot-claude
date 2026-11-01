@@ -72,7 +72,7 @@ Enforcement hooks for SSH, git, and command safety:
 
 | Plugin | Description |
 |--------|-------------|
-| `hook-allow-ssh` | Auto-allows SSH/scp/rsync to configured hosts (eliminates permission prompts); never anything that also runs or writes locally |
+| `hook-allow-ssh` | Auto-allows SSH/scp/rsync to configured hosts (eliminates permission prompts). A whitelist: known-harmless flags/`-o` options, uploads to remote tmp dirs only, pipes only into read-only filters; never anything that also runs or writes locally |
 | `hook-block-tmp-creation` | Blocks file creation in `/tmp/`, incl. indirect use (`VAR=/tmp/…`, `--out /tmp/…`, `-v /tmp/…:`, `cd /tmp`) (use project-local `tmp/`) |
 | `hook-block-stderr-to-null` | Blocks silencing stderr: `2>/dev/null`, `>/dev/null 2>&1`, `&>/dev/null`, `2>&-` (keep diagnostic output visible) |
 | `hook-block-ssh-hash-hostnames` | Blocks SSH `-H` flag and `HashKnownHosts` (keep known_hosts readable) |
@@ -84,14 +84,17 @@ Enforcement hooks for SSH, git, and command safety:
 
 All deny hooks report their reason in `hookSpecificOutput.permissionDecisionReason`
 (the field the model sees) and fail open *visibly* (exit 1 + traceback on stderr)
-if they hit a bug. Each hook has tests under its `hooks/` directory; run them all:
+if they hit a bug. Bash-command hooks ignore text inside quotes (a commit message
+or grep pattern mentioning `2>/dev/null` is not a redirection), and Edit checks
+compare `old_string` with `new_string` so unchanged context lines are not
+re-denied. Each hook has tests under its `hooks/` directory; run them all:
 
 ```bash
-uv run run_hook_tests.py            # everything
-uv run run_hook_tests.py allow-ssh  # one plugin
+uv run --no-project run_hook_tests.py            # everything
+uv run --no-project run_hook_tests.py allow-ssh  # one plugin
 ```
 
-### Productivity (3)
+### Productivity (4)
 
 | Plugin | Description |
 |--------|-------------|

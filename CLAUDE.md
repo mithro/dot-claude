@@ -25,6 +25,9 @@ claude plugin marketplace add mithro/dot-claude
 
 ### Hooks: conventions
 
-- Every hook has a `hooks/test_*.py`; run them all with `uv run run_hook_tests.py`.
+- Every hook has a `hooks/test_*.py`; run them all with `uv run --no-project run_hook_tests.py`. Every bypass or false positive found in review becomes a test case before the fix.
 - A deny must put its explanation in `hookSpecificOutput.permissionDecisionReason` — that is the only field Claude Code shows to the model. `systemMessage` is rendered to the user only; the model never sees it.
 - Fail open *visibly*: on a hook bug, print a traceback to stderr and exit 1 (non-blocking error, shown to the user). Never exit 0 with `{}` on an exception — that hides the bug.
+- Bash-command hooks must not treat quoted text as shell syntax: blank out quoted spans (keeping `$( )` inside double quotes, which does run) or tokenise with `shlex` and judge one simple command at a time. Whole-line regexes deny commit messages and grep patterns.
+- Edit checks compare `old_string` against `new_string` (counts of offending lines) so an unchanged context line is not re-denied; the Edit tool's field is `new_string`, not `new_text`.
+- `hook-allow-ssh` is a **whitelist**, not a blacklist: anything it does not positively recognise falls through to normal prompting. Never add a flag, `-o` option, rsync option or pipe filter to its safe sets without checking it cannot run or write anything locally.
