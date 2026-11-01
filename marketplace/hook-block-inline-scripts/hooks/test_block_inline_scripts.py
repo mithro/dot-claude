@@ -41,6 +41,10 @@ def decision(command):
     "uv run python -I -c 'print(1)'",          # flag between python and -c
     "uv run --no-project python -I -c 'x'",
     "python3 -u -B -c 'print(1)'",
+    # 2026-11-01 review
+    "python3 -c'print(1)'",                    # no space after -c
+    "uv run python@3.12 -c 'print(1)'",        # uv interpreter spelling
+    'echo "$(python3 -c \'print(1)\')"',       # $( ) inside double quotes still runs
 ])
 def test_denies_inline_python(command):
     assert decision(command) == "deny", command
@@ -67,6 +71,10 @@ def test_denies_expanding_heredocs(command):
     "python3 -m pytest -c pytest.ini",         # -c belongs to pytest, not python
     "python3 script.py -c config.toml",        # -c is the script's own option
     "pip install -c constraints.txt pkg",
+    # 2026-11-01 review: text inside quotes is neither an interpreter nor a heredoc
+    'git commit -m "fix python -c handling"',
+    "echo 'write <<EOF'",
+    "grep -n 'python -c' hooks.py",
 ])
 def test_allows_scripts_and_quoted_heredocs(command):
     assert decision(command) == "allow", command
