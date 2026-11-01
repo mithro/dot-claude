@@ -81,8 +81,13 @@ READ_OR_REMOVE_FLAGS = {
     "--get-regexp", "--list", "-l", "--edit", "-e", "--show-origin", "--show-scope",
 }
 
-# A shell redirection into a file: `>> ~/.gitconfig`, `> "$HOME/.gitconfig"`.
-REDIRECT_TARGET = re.compile(r""">>?\s*['"]?([^\s'"|;&]+)""")
+# Shell writes into a file: `>> ~/.gitconfig`, `> "$HOME/.gitconfig"`,
+# `| tee -a ~/.gitconfig`, `dd of=~/.gitconfig`.
+REDIRECT_TARGET = re.compile(
+    r""">>?\s*['"]?([^\s'"|;&]+)"""
+    r"""|\btee(?:\s+-\S+)*\s+['"]?([^\s'"|;&<>]+)"""
+    r"""|\bdd\b[^|;&\n]*?\bof=['"]?([^\s'"|;&]+)"""
+)
 
 # `[safe]` / `safe.directory` as they would appear in shell text being written
 # into a gitconfig (printf/echo/heredoc).
@@ -214,7 +219,9 @@ def shell_writes_safe_to_gitconfig(command: str) -> bool:
         return False
     return any(
         is_gitconfig_path(target.replace("$HOME", "~"))
-        for target in REDIRECT_TARGET.findall(command)
+        for groups in REDIRECT_TARGET.findall(command)
+        for target in groups
+        if target
     )
 
 

@@ -74,6 +74,11 @@ expect(bash("git config --global --add safe.directory / # --get"), deny=True, la
 expect(bash("printf '[safe]\\n\\tdirectory = /\\n' >> ~/.gitconfig"), deny=True, label="shell append of [safe] to ~/.gitconfig")
 expect(bash("echo 'safe.directory = /' >> /home/tim/.gitconfig"), deny=True, label="shell append of safe.directory to a gitconfig")
 expect(bash("cat > /home/tim/proj/.git/config <<'EOF'\n[safe]\n\tdirectory = /\nEOF"), deny=True, label="heredoc write of [safe] to .git/config")
+# round-2 review
+expect(bash("printf '[safe]\\ndirectory=/\\n' | tee -a ~/.gitconfig"), deny=True, label="tee -a of [safe] into ~/.gitconfig")
+expect(bash("tee -a ~/.gitconfig <<<'[safe]'"), deny=True, label="tee -a with here-string into ~/.gitconfig")
+expect(bash("echo 'safe.directory = /' | dd of=/home/tim/.gitconfig conv=notrunc oflag=append"), deny=True, label="dd of= a gitconfig")
+expect(bash("git config --list | tee config-dump.txt"), deny=False, label="tee to a non-gitconfig file")
 
 print("\nBash — must ALLOW:")
 expect(bash("git config --unset safe.directory /home/tim/repo"), deny=False, label="--unset safe.directory")
