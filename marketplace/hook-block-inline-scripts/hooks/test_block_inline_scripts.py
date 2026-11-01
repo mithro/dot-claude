@@ -43,6 +43,7 @@ def decision(command):
     "python3 -u -B -c 'print(1)'",
     # 2026-11-01 review
     "python3 -c'print(1)'",                    # no space after -c
+    "python3 -cprint(1)",                      # code glued to -c, no quotes (round-2 review)
     "uv run python@3.12 -c 'print(1)'",        # uv interpreter spelling
     'echo "$(python3 -c \'print(1)\')"',       # $( ) inside double quotes still runs
 ])

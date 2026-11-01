@@ -183,7 +183,7 @@
     {
       "name": "hook-block-inline-scripts",
       "description": "Blocks inline code execution (python [flags] -c, heredocs) \u2014 write to a file first, then execute it",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "source": "./marketplace/hook-block-inline-scripts",
       "category": "security"
     },

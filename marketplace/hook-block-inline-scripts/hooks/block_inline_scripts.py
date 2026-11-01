@@ -78,10 +78,12 @@ Or write the content to a file first using the Write tool."""
 
 # python -c, with any number of boolean interpreter flags in between:
 #   python -c, python3 -c, python3.13 -c, /usr/bin/python3 -c,
-#   uv run python -I -c, uv run python@3.12 -c, python3 -u -B -c, python3 -c'...'
-# `-c` must be a whole token; `python3 -m pytest -c x` is pytest's own -c.
+#   uv run python -I -c, uv run python@3.12 -c, python3 -u -B -c, python3 -c'...',
+#   python3 -cprint(1)  (python takes everything glued to -c as the code)
+# The -c must be the interpreter's own flag; `python3 -m pytest -c x` is
+# pytest's -c (the non-flag `pytest` ends the interpreter's options).
 PYTHON_DASH_C = re.compile(
-    r"(?:^|[\s/(`])python(?:[23](?:\.\d+)?|@[\d.]+)?\s+(?:-[A-Za-z]+\s+)*-c(?=\s|$|['\"])",
+    r"(?:^|[\s/(`])python(?:[23](?:\.\d+)?|@[\d.]+)?\s+(?:-[A-Za-z]+\s+)*-c(?!=)",
 )
 
 # Heredoc with single-quoted delimiter — SAFE, allow these. Quoted text has
