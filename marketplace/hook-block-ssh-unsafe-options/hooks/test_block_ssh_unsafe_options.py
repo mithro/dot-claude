@@ -49,9 +49,50 @@ def bash(command):
     "ssh -o 'UserKnownHostsFile /dev/null' host",
     "scp -o StrictHostKeyChecking=no file host:/tmp/",
     "ssh -o stricthostkeychecking=NO host",       # case-insensitive
+    # 2026-11-01 review: synonyms and spellings ssh accepts
+    "ssh -o StrictHostKeyChecking=off host",
+    "ssh -o StrictHostKeyChecking=false host",
+    "ssh -o=StrictHostKeyChecking=no host",       # readconf tolerates a leading =
+    "ssh -4oStrictHostKeyChecking=no host",       # clustered short flags
+    "ssh -o GlobalKnownHostsFile=/dev/null host",
+    "ssh -o 'UserKnownHostsFile=/dev/null' host",
+    "ssh -tto StrictHostKeyChecking=no host",
 ])
 def test_denies_unsafe_cli_options(command):
     assert bash(command) == "deny", command
+
+
+@pytest.mark.parametrize("line", [
+    "StrictHostKeyChecking" + "=no",
+    "StrictHostKeyChecking" + " off",
+    "StrictHostKeyChecking" + " false",
+    "StrictHostKeyChecking" + " no # until the lab is rekeyed",
+    "StrictHostKeyChecking" + "\tno",
+    "UserKnownHostsFile" + "=/dev/null",
+    "GlobalKnownHostsFile" + " /dev/null",
+])
+def test_denies_config_spellings(line):
+    assert decision("Write", {
+        "file_path": "/home/tim/.ssh/config",
+        "content": f"Host x\n    {line}\n",
+    }) == "deny", line
+
+
+def test_allows_edit_that_keeps_existing_unsafe_line_as_context():
+    """Editing a neighbouring line must not re-deny an option that was already there."""
+    assert decision("Edit", {
+        "file_path": "/home/tim/.ssh/config",
+        "old_string": f"Host lab\n    {SHKC_NO}\n    User root\n",
+        "new_string": f"Host lab\n    {SHKC_NO}\n    User tim\n",
+    }) == "allow"
+
+
+def test_denies_edit_that_adds_a_second_unsafe_line():
+    assert decision("Edit", {
+        "file_path": "/home/tim/.ssh/config",
+        "old_string": f"Host lab\n    {SHKC_NO}\n",
+        "new_string": f"Host lab\n    {SHKC_NO}\n    {UKHF_NULL}\n",
+    }) == "deny"
 
 
 @pytest.mark.parametrize("command", [

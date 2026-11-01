@@ -68,25 +68,32 @@ ssh -o UserKnownHostsFile=~/.ssh/known_hosts_project user@host
 # ssh accepts both `-o Option=value` and `-o 'Option value'`; the quote is
 # optional and the value may be separated by `=` or whitespace.
 
+# `-o` may be clustered with other short flags (`-4o`, `-tto`), ssh's readconf
+# tolerates a leading `=`/whitespace in the value (`-o=Opt=val`), and the
+# "off" value is spelled no/off/false. Known-hosts: both the user and the
+# global file can be pointed at /dev/null.
+OPT_PREFIX = r"""-[A-Za-z0-9]*o\s*['"]?[\s=]*"""
+
 STRICT_HOST_KEY_NO_CLI = re.compile(
-    r"""-o\s*['"]?StrictHostKeyChecking[\s=]+no\b""",
+    OPT_PREFIX + r"StrictHostKeyChecking[\s=]+(?:no|off|false)\b",
     re.IGNORECASE,
 )
 
 KNOWN_HOSTS_DEV_NULL_CLI = re.compile(
-    r"""-o\s*['"]?UserKnownHostsFile[\s=]+/dev/null\b""",
+    OPT_PREFIX + r"(?:User|Global)KnownHostsFile[\s=]+/dev/null\b",
     re.IGNORECASE,
 )
 
-# --- Config file patterns (directive per line, whitespace separated) ---
+# --- Config file patterns (one directive per line: `Key value` or `Key=value`,
+# optionally followed by a comment) ---
 
 STRICT_HOST_KEY_NO_CONF = re.compile(
-    r'^\s*StrictHostKeyChecking\s+no\s*$',
+    r'^\s*StrictHostKeyChecking[\s=]+(?:no|off|false)\s*(?:#.*)?$',
     re.MULTILINE | re.IGNORECASE,
 )
 
 KNOWN_HOSTS_DEV_NULL_CONF = re.compile(
-    r'^\s*UserKnownHostsFile\s+/dev/null\s*$',
+    r'^\s*(?:User|Global)KnownHostsFile[\s=]+/dev/null\s*(?:#.*)?$',
     re.MULTILINE | re.IGNORECASE,
 )
 
@@ -119,23 +126,41 @@ def check_bash_command(command):
     return None
 
 
+def unsafe_config_lines(text):
+    """Return the denial messages for every unsafe directive line in text.
+
+    Comment lines are harmless. The result is a list (one entry per matching
+    line) so an Edit can be judged by whether it ADDS such lines.
+    """
+    found = []
+    for line in (text or '').splitlines():
+        if line.lstrip().startswith('#'):
+            continue
+        if STRICT_HOST_KEY_NO_CONF.search(line):
+            found.append(DENY_STRICT_HOST_KEY)
+        elif KNOWN_HOSTS_DEV_NULL_CONF.search(line):
+            found.append(DENY_KNOWN_HOSTS_DEV_NULL)
+    return found
+
+
 def check_file_content(tool_input):
-    """Return a denial message if an SSH config write/edit adds unsafe options."""
+    """Return a denial message if an SSH config write/edit ADDS unsafe options.
+
+    For Edit, an unsafe line that is already present in old_string (context
+    around the real change) does not count; only a growing count is denied.
+    """
     if not SSH_CONFIG_PATH.search(tool_input.get('file_path', '') or ''):
         return None
 
-    # new_string (Edit tool) or content (Write tool)
-    text = tool_input.get('new_string', '') or tool_input.get('content', '') or ''
+    if 'new_string' in tool_input:  # Edit tool
+        new = unsafe_config_lines(tool_input.get('new_string', ''))
+        old = unsafe_config_lines(tool_input.get('old_string', ''))
+        if len(new) > len(old):
+            return new[0]
+        return None
 
-    # Comment lines are harmless
-    non_comment = [line for line in text.splitlines() if not line.lstrip().startswith('#')]
-    filtered = '\n'.join(non_comment)
-
-    if STRICT_HOST_KEY_NO_CONF.search(filtered):
-        return DENY_STRICT_HOST_KEY
-    if KNOWN_HOSTS_DEV_NULL_CONF.search(filtered):
-        return DENY_KNOWN_HOSTS_DEV_NULL
-    return None
+    new = unsafe_config_lines(tool_input.get('content', ''))  # Write tool
+    return new[0] if new else None
 
 
 def main():
