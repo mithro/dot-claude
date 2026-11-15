@@ -242,6 +242,13 @@
       "version": "1.0.0",
       "source": "./marketplace/google-sheets",
       "category": "productivity"
+    },
+    {
+      "name": "writing-sourced-docs",
+      "description": "Evidence-backed technical reference documentation \u2014 the writing-sourced-documentation skill: every claim cited, known/typical/inferred kept apart, numeric readability caps, review protocol, measurement script",
+      "version": "1.0.0",
+      "source": "./marketplace/writing-sourced-docs",
+      "category": "productivity"
     }
   ]
 }
