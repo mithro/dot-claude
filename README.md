@@ -113,6 +113,8 @@ dot-claude/
 │   ├── hook-*/                   # 9 hook plugins (each with hooks/test_*.py)
 │   ├── my-conventions/           # Coding conventions (SessionStart hook)
 │   └── github-repo-setup/       # GitHub config skill + scripts
+├── etc-claude-code/              # Installed to /etc/claude-code/ by rcfiles setup.sh
+│   └── managed-settings.json     # cleanupPeriodDays for every claude process
 ├── run_hook_tests.py             # Runs every hook plugin's tests
 ├── settings.json                 # Repo-level permissions
 ├── CLAUDE.md                     # Repo description
