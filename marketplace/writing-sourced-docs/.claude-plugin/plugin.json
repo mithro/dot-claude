@@ -1,0 +1,6 @@
+{
+  "name": "writing-sourced-docs",
+  "description": "Evidence-backed technical reference documentation — every claim cited, known/typical/inferred kept apart, readable on a phone, machine-checked",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}
