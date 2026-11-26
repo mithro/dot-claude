@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
 """Capture Claude Code's "Background tasks" dialog from this session's own tmux pane.
 
-    uv run --no-project uitasks.py [--pane %N] [--state-dir DIR]
+    uv run --no-project uitasks.py [--pane TARGET] [-L SOCKET] [--state-dir DIR]
 
 It only reads the screen and presses navigation keys. It makes no health decision.
-Output: a JSON snapshot (header count, every row per section, the full command and
-runtime of each task), the raw screen captures beside it, and a diff against the
-previous snapshot of the SAME pane.
+Output: a JSON snapshot (footer count, dialog header, every row, the detail view of
+each shell row, the sub-agent panel under the footer), the raw screen captures beside
+it, and a diff against the previous snapshot of the same pane on the same tmux server.
 
 Safety, so it does not disturb the person using the pane:
-  * Aborts unless the input box is on screen and empty. Grey or dim text there is the
-    UI's own suggestion and counts as empty; anything in the default colour is theirs.
-  * Each key is sent only after the screen shows the state the previous key should have
-    produced: Down only when the footer says "to manage", Enter only when it says
-    "enter to view tasks", Escape only while the dialog is visibly open (outside the
-    dialog, Escape interrupts the running turn).
+  * Aborts unless the pane is out of copy mode and the input box is on screen and
+    empty. Grey or dim text there is the UI's own suggestion and counts as empty;
+    anything in the default colour is theirs.
+  * One key at a time, each only after a fresh capture shows the state the previous
+    key should have produced: Down only when the footer (not the transcript) says
+    "to manage", Enter only when it says "enter to view tasks", a row's Enter only
+    when the list shows that row selected, Left only from a detail view.
+  * Escape only while a dialog is visibly open below the last rule line (outside a
+    dialog, Escape interrupts the running turn), and never a second Escape until 5 s
+    have passed with the dialog still open on a fresh capture.
   * Never sends "x", which stops the selected task.
+  * Opens the detail view of shell rows only. What Enter does on an agent, scheduled
+    or monitor row has not been captured, so those rows are listed but not opened.
+  * If anything fails after the dialog was opened, it still closes the dialog.
   * Afterwards it checks the dialog is closed and the input box is unchanged.
 
-Exit codes: 0 ok, 2 skipped (person typing, or an unexpected screen), 3 a self-check failed.
+Exit codes: 0 ok, 1 error (tmux failed), 2 skipped (person typing, copy mode, or an
+unexpected screen; nothing was sent), 3 a self-check failed.
 After every run, compare the saved raw screens by eye with the JSON.
 """
 from __future__ import annotations
@@ -35,7 +43,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import panelib  # noqa: E402
 
 SECTIONS = ("Shells", "Background agents", "Scheduled", "Teammates", "Monitors")
-
+# Rows whose detail view is known: titled "Shells", or the untitled list of 2.1.332,
+# which holds shells only (a sub-agent's shell is listed too, marked "· <type> subagent").
+OPENABLE = ("Shells", "Tasks")
 
 BULLET = re.compile(r"^[^\w\s(\[]+\s+")  # the status dot in front of a row
 
@@ -43,15 +53,18 @@ BULLET = re.compile(r"^[^\w\s(\[]+\s+")  # the status dot in front of a row
 def parse_list(screen: str) -> dict:
     """Parse the task LIST dialog. Tolerant of both layouts seen so far: a
     'N background tasks' header with titled sections, and a breakdown header
-    ('2 shells') with bulleted rows and no section titles."""
-    lines = panelib.plain(screen).splitlines()
-    start = max(i for i, l in enumerate(lines) if re.match(r"^\s*Background\s*$", l))
-    body = [l for l in lines[start + 1:]]
+    ('2 shells') with bulleted rows and no section titles. If the list dialog is not
+    open, returns the same shape with no rows and count None."""
+    out = {"count": None, "header": "", "sections": {}, "rows": [], "selected": None}
+    if not panelib.list_open(screen):
+        return out
+    body = panelib.dialog_lines(screen)
+    body = body[next(i for i, l in enumerate(body) if l.strip() == "Background") + 1:]
     header = next((l.strip() for l in body if l.strip()), "")
     m = re.search(r"(\d+) background tasks?", header)
     nums = re.findall(r"(\d+) [a-z]", header)
-    count = int(m.group(1)) if m else (sum(int(n) for n in nums) if nums else None)
-    out = {"count": count, "header": header, "sections": {}, "rows": [], "selected": None}
+    out["header"] = header
+    out["count"] = int(m.group(1)) if m else (sum(int(n) for n in nums) if nums else None)
     sec, seen_header = None, False
     for l in body:
         t = l.strip()
@@ -83,13 +96,13 @@ def parse_list(screen: str) -> dict:
 
 
 def parse_detail(screen: str) -> dict:
-    s = panelib.plain(screen)
+    lines = panelib.dialog_lines(screen) or panelib.plain(screen).splitlines()
+    s = "\n".join(lines)
     d = {}
     for field in ("Status", "Runtime", "Command", "Subagent"):
         m = re.search(rf"^\s*{field}:\s+(.*)$", s, re.M)
         d[field.lower()] = m.group(1).strip() if m else None
     if d["command"]:  # the command wraps onto indented continuation lines
-        lines = s.splitlines()
         i = next(i for i, l in enumerate(lines) if re.match(r"^\s*Command:", l))
         label_indent = len(lines[i]) - len(lines[i].lstrip())
         cont = []
@@ -102,18 +115,52 @@ def parse_detail(screen: str) -> dict:
     return d
 
 
-def main() -> None:
+def parse(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pane", default=os.environ.get("TMUX_PANE"))
+    ap.add_argument("--pane", default=os.environ.get("TMUX_PANE"), help="tmux target (default: $TMUX_PANE, this session's own pane)")
+    ap.add_argument("-L", "--socket", help="tmux socket name, when --pane is on another tmux server")
     ap.add_argument("--state-dir", default=os.path.join(
         os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "claude-bgtasks"))
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     if not a.pane:
-        sys.exit("not inside tmux (no TMUX_PANE) and no --pane given")
+        ap.error("not inside tmux (no TMUX_PANE) and no --pane given")
+    return a
 
-    tm = panelib.Tmux()
+
+def report(snaps: pathlib.Path, stamp: str, snap: dict) -> None:
+    """Save the snapshot, print it, and print what changed since the previous one."""
+    prev = sorted(snaps.glob("*.json"))
+    (snaps / f"{stamp}.json").write_text(json.dumps(snap, indent=2))
+    print(json.dumps(snap, indent=2))
+    if not prev:
+        print("\n(first snapshot for this pane)")
+        return
+    old = json.loads(prev[-1].read_text())
+    if old.get("tmux_server") != snap.get("tmux_server"):
+        # Pane ids start again from %0 when the tmux server restarts.
+        print(f"\n{prev[-1].name} is from another tmux server, so this pane id may have been another session: not compared.")
+        return
+    print(f"\nChanges since {prev[-1].name}:")
+    if old.get("count") != snap.get("count"):
+        print(f"  count {old.get('count')} -> {snap.get('count')}")
+    was_s, now_s = dict(old.get("sections", {})), dict(snap["sections"])
+    was_s["Agent panel"], now_s["Agent panel"] = old.get("agent_panel", []), snap["agent_panel"]
+    for sec in sorted(set(was_s) | set(now_s)):
+        was, now = was_s.get(sec, []), now_s.get(sec, [])
+        for r in now:
+            if r not in was:
+                print(f"  + [{sec}] {r}")
+        for r in was:
+            if r not in now:
+                print(f"  - [{sec}] {r}")
+    if (old.get("count"), was_s) == (snap.get("count"), now_s):
+        print("  rows IDENTICAL to the previous snapshot: confirm that is expected, not a stale capture")
+
+
+def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
+    pane = tm.resolve(a.pane)
     # One snapshot directory per pane: a shared one makes the diff compare against another session.
-    snaps = pathlib.Path(a.state_dir) / re.sub(r"[^A-Za-z0-9]+", "_", a.pane).strip("_")
+    snaps = pathlib.Path(a.state_dir) / (re.sub(r"[^A-Za-z0-9]+", "_", f"{a.socket or ''}_{pane}").strip("_"))
     stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
     raw = snaps / f"{stamp}-screens"
     raw.mkdir(parents=True)
@@ -121,139 +168,167 @@ def main() -> None:
 
     def log(label: str, screen: str) -> None:
         nonlocal n_raw
-        (raw / f"{n_raw:02d}-{re.sub(r'[^a-z0-9]+', '-', label.lower()).strip('-')}.txt").write_text(screen)
+        (raw / f"{n_raw:02d}-{re.sub(r'[^a-z0-9]+', '-', label.lower()).strip('-')}.txt").write_text(panelib.plain(screen))
         n_raw += 1
 
     def wait_for(pred, label: str, timeout: float = 3.0) -> str | None:
-        end = time.time() + timeout
-        while time.time() < end:
-            s = tm.capture(a.pane)
-            if pred(s):
+        """A fresh colour capture satisfying `pred` with the pane out of copy mode, or None."""
+        end = clock.now() + timeout
+        while True:
+            in_mode, s = tm.look(pane)
+            if not in_mode and pred(s):
                 log(label, s)
                 return s
-            time.sleep(0.1)
-        log(label + " TIMEOUT", tm.capture(a.pane))
-        return None
+            if clock.now() >= end:
+                log(label + " TIMEOUT", s)
+                return None
+            clock.sleep(0.1)
 
-    def typed() -> str | None:
-        return panelib.input_box(tm.capture(a.pane, colour=True))
-
-    def finish(code: int, msg: str, snap: dict | None = None) -> None:
-        if snap is not None:
-            path = snaps / f"{stamp}.json"
-            prev = sorted(p for p in snaps.glob("*.json"))
-            path.write_text(json.dumps(snap, indent=2))
-            print(json.dumps(snap, indent=2))
-            if prev:
-                old = json.loads(prev[-1].read_text())
-                print(f"\nChanges since {prev[-1].name}:")
-                if old.get("count") != snap.get("count"):
-                    print(f"  count {old.get('count')} -> {snap.get('count')}")
-                for sec in sorted(set(old["sections"]) | set(snap["sections"])):
-                    was, now = old["sections"].get(sec, []), snap["sections"].get(sec, [])
-                    for r in now:
-                        if r not in was:
-                            print(f"  + [{sec}] {r}")
-                    for r in was:
-                        if r not in now:
-                            print(f"  - [{sec}] {r}")
-                strip = lambda d: {k: v for k, v in d.items() if k not in ("time", "shells")}  # noqa: E731
-                if strip(old) == strip(snap):
-                    print("  rows IDENTICAL to the previous snapshot: confirm that is expected, not a stale capture")
-            else:
-                print("\n(first snapshot for this pane)")
-        print(f"\n{msg}\nraw screens (compare with the JSON by eye): {raw}")
-        sys.exit(code)
+    def skip(msg: str) -> int:
+        print(f"SKIPPED, nothing sent: {msg}\nraw screens: {raw}")
+        return 2
 
     # ---- 0. preconditions
-    before = typed()
-    s0 = tm.capture(a.pane)
+    in_mode, s0 = tm.look(pane)
     log("start", s0)
+    if in_mode:
+        return skip("the pane is in copy mode (the person is scrolling back)")
     if panelib.dialog_open(s0):
-        finish(2, "SKIPPED: a task dialog is already open (the person may be using it)")
+        return skip("a dialog is already open (the person may be using it)")
+    before = panelib.input_box(s0)
     if before is None:
-        finish(2, "SKIPPED: no input box on screen (permission prompt, dialog or not a Claude Code pane)")
+        return skip("no input box on screen (permission prompt, or not a Claude Code pane)")
     if before:
-        finish(2, f"SKIPPED: the person has text in the input box: {before!r}")
-    if "to manage" not in s0:
-        finish(2, "SKIPPED: footer has no 'to manage' (no background tasks, or an unexpected screen)")
-
-    def close() -> str | None:
-        """Escape, only while a task dialog is visibly open, until the footer is back."""
-        for _ in range(4):
-            if not panelib.dialog_open(tm.capture(a.pane)):
-                break
-            tm.key(a.pane, "Escape")
-            time.sleep(0.4)
-        return wait_for(lambda s: not panelib.dialog_open(s) and "to manage" in s, "closed, footer redrawn")
-
-    # ---- 1. open the dialog
+        return skip(f"the person has text in the input box: {before!r}")
+    if not panelib.footer_has(s0, "to manage"):
+        return skip("the footer has no 'to manage' (no background tasks, or an unexpected screen)")
     footer_n = panelib.footer_task_count(s0)
-    tm.key(a.pane, "Down")
-    if not wait_for(lambda s: "enter to view tasks" in s, "after Down"):
-        finish(3, "FAILED: Down did not focus the task footer; nothing else sent")
-    if typed():
-        tm.key(a.pane, "Up")
-        finish(2, "SKIPPED: the person started typing; returned focus with Up")
-    tm.key(a.pane, "Enter")
-    s1 = wait_for(panelib.dialog_open, "dialog open")
-    if not s1:
-        finish(3, "FAILED: Enter did not open a task dialog; nothing else sent. LOOK AT THE PANE NOW.")
+    snap = {"count": None, "header": "", "sections": {}, "rows": [], "selected": None,
+            "time": stamp, "pane": pane, "tmux_server": tm.run("display-message", "-p", "#{pid} #{start_time}").strip(),
+            "footer_count": footer_n, "agent_panel": panelib.agent_panel(s0), "details": [], "not_opened": []}
+    problems: list[str] = []
+    opened = False
 
-    if panelib.detail_open(s1) and not panelib.list_open(s1):
-        # A single task: the detail view opens directly, there is no list to parse.
-        d = parse_detail(s1)
-        shells = [d.get("command") or "(no Command line: an agent or monitor)"]
-        snap = {"count": 1, "sections": {"Single task (detail opened directly)": shells}, "selected": None}
-        snap.update(time=stamp, pane=a.pane, footer_count=footer_n, shells=[d])
-    else:
-        snap = parse_list(s1)
-        snap.update(time=stamp, pane=a.pane, footer_count=footer_n, shells=[])
-        # ---- 2. open every active row to read its full details
-        shells = snap["rows"]
-        for idx in range(len(shells)):
-            cur = parse_list(tm.capture(a.pane))["selected"]
-            steps = 0
-            while cur != idx and steps < 60:
-                tm.key(a.pane, "Down" if (cur is None or cur < idx) else "Up")
-                time.sleep(0.15)
-                cur = parse_list(tm.capture(a.pane))["selected"]
-                steps += 1
-            if cur != idx:
+    def close() -> bool:
+        """Escape, only while a dialog is visibly open on a fresh capture. True once the input box is back."""
+        for _ in range(3):
+            in_mode, s = tm.look(pane)
+            if in_mode or not panelib.dialog_open(s):
                 break
-            tm.key(a.pane, "Enter")
-            sd = wait_for(lambda s: panelib.detail_open(s) and not panelib.list_open(s), f"row {idx} detail")
-            if sd:
-                snap["shells"].append(dict(parse_detail(sd), row=shells[idx]["text"]))
-            tm.key(a.pane, "Left")
-            if not wait_for(panelib.list_open, f"back to list after row {idx}"):
+            tm.key(pane, "Escape")
+            if wait_for(lambda n: not panelib.dialog_open(n), "after Escape", 5.0):
                 break
+        return wait_for(panelib.has_input_box, "closed, input box back") is not None
 
-    # ---- 3. close
-    closed = close()
-    after = typed()
+    def drive() -> None:
+        nonlocal opened
+        # ---- 1. open the dialog
+        tm.key(pane, "Down")
+        s = wait_for(lambda n: panelib.footer_has(n, "enter to view tasks"), "after Down")
+        if not s:
+            problems.append("Down did not focus the task footer; nothing else was sent")
+            return
+        if panelib.input_box(s):
+            tm.key(pane, "Up")
+            problems.append("the person started typing; returned focus with Up and stopped")
+            return
+        tm.key(pane, "Enter")
+        opened = True
+        s1 = wait_for(panelib.dialog_open, "dialog open")
+        if not s1:
+            problems.append("Enter did not open a task dialog")
+            return
+
+        if panelib.detail_open(s1):
+            # A single task: its detail view opens directly, there is no list to parse.
+            d = parse_detail(s1)
+            text = d.get("command") or "(no Command line)"
+            snap.update(count=1, header="(single task: detail view opened directly)",
+                        sections={"Tasks": [text]}, rows=[{"section": "Tasks", "text": text}])
+            snap["details"].append(dict(d, row=text))
+            return
+        if not panelib.list_open(s1):
+            problems.append("an unknown dialog opened (neither the task list nor a detail view)")
+            return
+        snap.update(parse_list(s1))
+
+        # ---- 2. open each shell row to read its full details
+        rows = snap["rows"]
+        for idx, row in enumerate(rows):
+            if row["section"] not in OPENABLE:
+                snap["not_opened"].append(row)
+                continue
+            cur = parse_list(s1)["selected"]
+            for _ in range(len(rows) + 1):
+                if cur == idx:
+                    break
+                tm.key(pane, "Down" if (cur is None or cur < idx) else "Up")
+                was = cur
+                s1 = wait_for(lambda n: panelib.list_open(n) and parse_list(n)["selected"] != was, f"select towards row {idx}", 2.0)
+                if not s1:
+                    break
+                cur = parse_list(s1)["selected"]
+            if not s1 or cur != idx:
+                problems.append(f"could not select row {idx}; stopped navigating")
+                return
+            tm.key(pane, "Enter")
+            sd = wait_for(lambda n: panelib.detail_open(n) or not panelib.dialog_open(n), f"row {idx} detail")
+            if not sd or not panelib.detail_open(sd):
+                problems.append(f"row {idx}: Enter did not open a detail view; stopped navigating")
+                return
+            snap["details"].append(dict(parse_detail(sd), row=row["text"]))
+            tm.key(pane, "Left")
+            s1 = wait_for(panelib.list_open, f"back to list after row {idx}")
+            if not s1:
+                problems.append(f"row {idx}: Left did not return to the list; stopped navigating")
+                return
+
+    # ---- 3. drive, and close whatever happened
+    closed = True
+    try:
+        drive()
+    finally:
+        if opened:
+            closed = close()
 
     # ---- 4. self-checks
-    problems = []
-    n_rows = len(snap["rows"]) if "rows" in snap else 1
-    if snap["count"] is None:
-        problems.append(f"no task count parsed from the dialog header {snap.get('header')!r}")
-    elif n_rows != snap["count"]:
-        problems.append(f"header says {snap['count']} but parsed {n_rows} active rows (a section name this script does not know?)")
-    if footer_n is not None and snap["count"] is not None and footer_n != snap["count"]:
-        problems.append(f"footer said {footer_n} but the dialog says {snap['count']}")
-    if len(snap["shells"]) != len(shells):
-        problems.append(f"read {len(snap['shells'])} detail views of {len(shells)} rows")
-    if any(not d.get("status") for d in snap["shells"]):
-        problems.append("a detail view had no Status line")
-    if not closed or panelib.dialog_open(tm.capture(a.pane)):
-        problems.append("dialog still open at the end: LOOK AT THE PANE NOW")
+    in_mode, end = tm.look(pane)
+    after = panelib.input_box(end)
+    expected = [r for r in snap["rows"] if r["section"] in OPENABLE]
+    if not problems:
+        if snap["count"] is None:
+            problems.append(f"no task count parsed from the dialog header {snap['header']!r}")
+        elif len(snap["rows"]) != snap["count"]:
+            problems.append(f"header says {snap['count']} but parsed {len(snap['rows'])} active rows (a section name this script does not know?)")
+        if footer_n is not None and snap["count"] is not None and footer_n != snap["count"]:
+            problems.append(f"footer said {footer_n} but the dialog says {snap['count']}")
+        if len(snap["details"]) != len(expected):
+            problems.append(f"read {len(snap['details'])} detail views of {len(expected)} shell rows")
+        if any(not d.get("status") for d in snap["details"]):
+            problems.append("a detail view had no Status line")
+    if not closed or panelib.dialog_open(end):
+        problems.append("a dialog is still open at the end: LOOK AT THE PANE NOW")
     if after != before:
         problems.append(f"input box changed: {before!r} -> {after!r}")
     snap["self_check_problems"] = problems
-    finish(3 if problems else 0,
-           "SELF-CHECK FAILED: " + "; ".join(problems) if problems else
-           "self-check ok: footer count = header count = parsed rows, every row's detail read, dialog closed, input unchanged", snap)
+    report(snaps, stamp, snap)
+    if problems:
+        print("\nSELF-CHECK FAILED: " + "; ".join(problems))
+    else:
+        skipped = f"; {len(snap['not_opened'])} non-shell rows listed but not opened" if snap["not_opened"] else ""
+        print(f"\nself-check ok: footer count = header count = parsed rows ({snap['count']}), "
+              f"{len(snap['details'])} shell detail views read{skipped}, dialog closed, input unchanged")
+    print(f"raw screens (compare with the JSON by eye): {raw}")
+    return 3 if problems else 0
+
+
+def main() -> None:
+    a = parse()
+    try:
+        sys.exit(run(a, panelib.Tmux(a.socket), panelib.Clock()))
+    except (RuntimeError, ValueError, OSError) as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
