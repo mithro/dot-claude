@@ -1,0 +1,6 @@
+{
+  "name": "background-tasks",
+  "description": "Monitoring Claude Code background work — the monitoring-background-tasks skill plus scripts: unfiltered process-tree check, Background-dialog capture through tmux, safe send and verified /compact into other sessions' panes",
+  "version": "1.0.0",
+  "author": {"name": "Tim Ansell"}
+}

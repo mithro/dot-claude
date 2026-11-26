@@ -22,6 +22,7 @@ claude plugin marketplace add mithro/dot-claude
 - `my-conventions` — Universal coding conventions (Python/uv, dates, commits, etc.)
 - `github-repo-setup` — GitHub repository configuration tools and skills
 - `google-sheets` — Google Sheets layout conventions skill + `sheetcheck.py` (column fit from data, lint)
+- `background-tasks` — `monitoring-background-tasks` skill + scripts (`bgcheck.py` unfiltered process tree, `uitasks.py` Background-dialog capture via tmux, `pane_send.py` / `pane_compact.py` for other sessions' panes); tests: `uv run --no-project marketplace/background-tasks/skills/monitoring-background-tasks/scripts/test_bgtasks.py`
 
 ### Hooks: conventions
 

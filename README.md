@@ -101,6 +101,7 @@ uv run --no-project run_hook_tests.py allow-ssh  # one plugin
 | `my-conventions` | Personal coding conventions: Python/uv, ISO dates, small commits, Apache 2.0, etc. |
 | `github-repo-setup` | GitHub repository configuration skill and tag ruleset script |
 | `google-sheets` | Google Sheets layout skill (`creating-google-sheets`) and `sheetcheck.py` column-fit / lint tool |
+| `background-tasks` | Background-work monitoring skill (`monitoring-background-tasks`) with process-tree, TUI-dialog capture and tmux pane send/compact scripts |
 
 ## Structure
 
