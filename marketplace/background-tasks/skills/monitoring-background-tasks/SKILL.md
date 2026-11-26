@@ -66,16 +66,21 @@ the whole filesystem, and leave no background command running when reporting bac
    wrappers are where the wait loops live. For each `LOOP`, state its exit condition and
    whether that can still become true. `IDLE` is a question to answer, not a verdict; a
    parent waiting on a busy child is fine.
-3. `uitasks.py` — captures the TUI's Background dialog from your own pane. Then compare its
-   saved raw screens with its JSON by eye, and read its diff against the last run.
-4. **Reconcile.** Background shells + background agents + scheduled jobs + monitors must
-   equal the UI's count. A sub-agent's current foreground tool call looks the same in `ps`
-   but is not a background task; MCP servers are children of `claude` too. Explain every
-   difference; never round it away.
-5. **Report each task**: what it is, whether it is working, the evidence. Kill what can never
-   finish and say so: only what this session or its own sub-agents started, never another
-   session's processes and never a job doing real work. Stop leftovers of finished work:
-   duplicate waiters, expired monitors, tunnels, claims on shared hardware.
+3. `uitasks.py` — captures the TUI's Background dialog and the sub-agent panel from your
+   own pane. Then compare its saved raw screens with its JSON by eye, and read its diff
+   against the last run.
+4. **Reconcile.** Every background shell, agent, scheduled job and monitor you know of must
+   appear in the UI (footer count, agent panel, dialog rows), and everything the UI shows
+   must be one you know of. What the count covers differs between Claude Code versions
+   (`references/tmux-own-ui.md`). A sub-agent's current foreground tool call looks the same
+   in `ps` but is not a background task; MCP servers are children of `claude` too. Explain
+   every difference; never round it away.
+5. **Report each task**: what it is, whether it is working, the evidence. Stop leftovers of
+   finished work: duplicate waiters, expired monitors, tunnels, claims on shared hardware.
+6. **Before killing anything**, write down its exit condition and why that can no longer
+   become true. A `LOOP` or `NO-EXIT` flag is a pattern match and is not that reason. Kill
+   only what this session or its own sub-agents started, never another session's processes
+   and never a job doing real work, and say what you killed.
 
 ## tmux
 
@@ -86,18 +91,30 @@ Your pane is `$TMUX_PANE`. Reading is always safe: `tmux capture-pane -p -t "$TM
 
 1. Capture **with colour**. The input box must be on screen and empty. Grey/dim text after
    `❯` is the UI's suggestion; default-colour text is the person's typing — if it is there,
-   send nothing and never clear it.
-2. Send one key, then confirm the screen shows the state that key should produce before the next.
+   send nothing and never clear it. The pane must not be in copy mode
+   (`tmux display-message -p -t PANE '#{pane_in_mode}'` prints `0`): a capture looks normal
+   while the person is scrolled back, but keys would go to copy mode.
+2. Send one key, then confirm on a fresh capture that the screen shows the state that key
+   should produce before the next.
 3. `Escape` only while a dialog is visibly open: anywhere else it interrupts the running turn.
    Never `x` in the Background dialog (it stops the task). Never `Ctrl-C` to get attention.
-4. Type text and `Enter` as separate steps, and confirm the submit happened. A slash command
-   sent without that check is the usual reason "`/compact` never ran".
+4. Type text and `Enter` as separate steps. Before `Enter`, the box must hold exactly what
+   you typed and nothing else: if the person typed at the same moment, `Enter` would submit
+   their words with yours. After `Enter`, confirm the submit happened. A slash command sent
+   without that check is the usual reason "`/compact` never ran".
+
+Read UI state only from where the UI draws it: the input box between the last two rule
+lines, the footer below it, a dialog below the last rule line. The transcript above quotes
+the same words ("↓ to manage", "Background", "esc to interrupt").
 
 - Driving your own task dialog, key by key: `references/tmux-own-ui.md` (`uitasks.py` does it).
 - Reading, messaging, compacting and restarting **other** sessions, locally or over ssh:
   `references/tmux-other-sessions.md` (`pane_send.py`, `pane_compact.py`).
-  Both scripts apply the four rules above: if the person's text is in the box they wait,
-  then exit 2 having sent nothing. Tell the person; do not clear it.
+  Both scripts apply the four rules above. If the pane is not safe to type into they type
+  nothing and exit 2: `pane_send.py` at once unless given `--wait SECS`, `pane_compact.py`
+  after `--wait-idle` (default 600 s). If the box changes under them after typing, they
+  withhold `Enter` and leave the text there (`pane_send.py` exit 4, `pane_compact.py`
+  exit 3). Either way tell the person; do not clear the box.
 
 When telling the person about another session, name it as host + tmux `session:window` +
 window title. A friendly session name or a bare PR number is not somewhere they can switch to.

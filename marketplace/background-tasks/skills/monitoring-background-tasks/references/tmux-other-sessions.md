@@ -15,7 +15,10 @@ Prefer SendMessage when the peer is listed by ListAgents: it does not touch the 
   (`/tmp/tmux-<uid>/`); a socket file existing does not mean a server answers on it.
 - The uid in that path differs between machines. Derive it, do not assume 1000.
 - A grouped session (`default-44`) is a second view of the same windows. Use the base name.
-- ListAgents prints `session:@window-id.%pane-id`. Map ids to names with the command above.
+- ListAgents may print a peer's tmux location as `session:@window-id.%pane-id`. Map ids to
+  names with the command above; a `%pane-id` is the safest TARGET.
+- Someone scrolled back in a pane has it in copy mode. Both scripts refuse then; by hand,
+  check `tmux display-message -p -t PANE '#{pane_in_mode}'` prints `0` before any key.
 - Read the pane's scrollback to learn what the session is actually doing. A window title is
   often stale.
 
@@ -24,9 +27,19 @@ Prefer SendMessage when the peer is listed by ListAgents: it does not touch the 
     pane_send.py TARGET [-L SOCKET] [--host HOST] --read
     pane_send.py TARGET [-L SOCKET] [--host HOST] --file msg.txt [--wait 900] [--queue] [--no-enter]
 
-`pane_send.py` refuses unless the input box is on screen and empty, pastes through a tmux
-buffer (so no shell or key-name quoting is involved, locally or over ssh), confirms the text
-arrived before pressing Enter, and confirms the box emptied afterwards.
+`pane_send.py`:
+
+1. resolves TARGET to a pane id once, so a window switch cannot redirect later keys;
+2. refuses (exit 2, nothing typed) unless the pane is out of copy mode and shows an empty
+   input box. By default it refuses at once; `--wait SECS` keeps re-checking;
+3. pastes through a tmux buffer, so no shell or key-name quoting is involved, locally or
+   over ssh;
+4. presses Enter only if the box then holds exactly the message. If the person typed at the
+   same moment or a dialog appeared, it stops with the text left in the box (exit 4);
+5. confirms the box emptied (exit 3 if not).
+
+`TARGET` as `session:window` means that window's active pane at the moment the script
+starts. Give `session:window.pane` or a `%id` when the window is split.
 
 Rules for the other pane:
 
@@ -52,9 +65,21 @@ itself) by typing it:
 
     pane_compact.py TARGET [-L SOCKET] [--host HOST] --keep 'role; handoff file; rules file; what it waits on'
 
-It waits for an idle, empty input box, types `/compact`, and requires "Compacting" within
-45 s and "Compacted" plus an idle box within the timeout. Typing the command without those
-checks is how compaction silently never happens.
+It waits for an idle, empty input box with no sub-agent running, types `/compact`, checks
+the box holds exactly that before Enter, and then requires the command to be echoed in the
+transcript with a `Compacted` result line under it and an idle box, within the timeout:
+
+    ❯ /compact role; handoff file; rules file
+      ⎿  Compacted
+
+The old transcript stays on screen, so an earlier `Compacted` proves nothing. Typing the
+command without those checks is how compaction silently never happens. Exit codes: 0
+verified, 2 never safe to type, 3 typed but Enter withheld, 4 did not start, 5 did not
+finish.
+
+It refuses while the screen shows a sub-agent running. A footer that only says
+`N background tasks` could be hiding one, so it refuses then too: check, then pass
+`--ignore-agents`.
 
 - **Yourself:** start it in the background with your own `$TMUX_PANE`, then end the turn.
 - **When:** at the moments the old context stops being needed — a pause or hold over about
