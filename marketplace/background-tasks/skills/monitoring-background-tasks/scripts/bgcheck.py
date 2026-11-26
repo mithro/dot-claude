@@ -22,6 +22,10 @@ Flags are prompts for you to investigate, never verdicts:
   DETACHED  outside the tree with no claude ancestor (section 2 only)
 
 This script makes no health decision and kills nothing. Read every line.
+
+Linux only: it reads `ps -eo …etimes,times…` (procps) and /proc/<pid>/cwd.
+The flags are pattern matches on command lines. They miss loops written in other ways
+and can fire on commands that merely look like loops, which is why every line is read.
 """
 from __future__ import annotations
 
@@ -52,29 +56,49 @@ def read_ps() -> dict[int, dict]:
 
 
 def is_claude(args: str) -> bool:
+    """A Claude Code process: the native `claude` binary, or node/bun running its cli.js."""
     a = args.split()
-    return bool(a) and os.path.basename(a[0]) == "claude"
+    if not a:
+        return False
+    if os.path.basename(a[0]) == "claude":
+        return True
+    return os.path.basename(a[0]) in ("node", "bun") and any(
+        os.path.basename(x) == "claude" or "/claude-code/" in x for x in a[1:4])
 
 
 def body(args: str) -> str:
-    """The command a Claude Code shell wrapper actually runs (it wraps it in `eval '...'`)."""
-    return args.split("eval ", 1)[1] if "eval " in args else args
+    """The command a Claude Code shell wrapper actually runs. The wrapper is
+    `<shell> -c source <snapshot> && … eval '<command>' …`; anything else is returned whole."""
+    m = re.match(r"\S*sh\s+-\w*c\s.*?&&\s+eval\s+(.*)$", args, re.S)
+    return m.group(1) if m else args
 
 
 def classify(cmd: str, stat: str, cpu: int, et: int, is_leaf: bool, idle_s: int) -> list[str]:
     flags = []
-    loop = bool(re.search(r"\b(while|until)\b", cmd)) and ("sleep" in cmd or ";" in cmd)
+    # `while`/`until` as a shell keyword (at the start, or after ; & | ( { a quote or `do`)
+    # with a `do` after it; not a word inside an argument such as `--until 5`.
+    loop = bool(re.search(r"""(?:^|[;&|({'"]|\bdo\s)\s*(?:while|until)\s.*?[;\n]\s*do\b""", cmd, re.S))
     if loop:
         flags.append("LOOP")
-    if re.search(r"\bpgrep\b[^|;&]*\s-\w*f", cmd) and loop:
+    if re.search(r"\bpgrep\b[^|;&]*\s(?:-\w*f|--full\b)", cmd) and loop:
         flags.append("PGREP-F")
-    if loop and re.search(r"\[\s*!?\s*-[efs]\s", cmd) and not re.search(r"\btimeout\b|kill -0|/proc/|SECONDS|date \+%s", cmd):
+    if loop and re.search(r"(?:\[\[?|\btest)\s+!?\s*-[efs]\s", cmd) and not re.search(r"\btimeout\b|kill -0|/proc/|SECONDS|date \+%s", cmd):
         flags.append("NO-EXIT")
     if cpu == 0 and et > idle_s and is_leaf and not cmd.lstrip().startswith("sleep"):
         flags.append("IDLE")
     if stat.startswith("Z"):
         flags.append("ZOMBIE")
     return flags
+
+
+def last_lines(path: str, tail_bytes: int = 8192) -> list[str]:
+    """The non-empty lines in the last few KB of a file (logs can be gigabytes)."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(max(0, os.path.getsize(path) - tail_bytes))
+            return fh.read().decode(errors="replace").strip().splitlines()
+    except OSError as e:
+        return [f"(cannot read: {e})"]
 
 
 def fmt(s: int) -> str:
@@ -88,6 +112,9 @@ def main() -> None:
     ap.add_argument("--idle-min", type=int, default=15)
     ap.add_argument("--claude-pid", type=int, help="check this claude process instead of the one this script runs under")
     a = ap.parse_args()
+    if not sys.platform.startswith("linux"):
+        sys.exit("bgcheck.py needs Linux (procps `ps -eo etimes,times` and /proc); "
+                 "on this system list the tree by hand, e.g. `ps -axo pid,ppid,stat,etime,time,command`")
 
     rows = read_ps()
     me = os.getpid()
@@ -168,26 +195,33 @@ def main() -> None:
     if a.log:
         print("\n== 3. Logs ==")
         now = time.time()
-        paths = sorted({p for g in a.log for p in glob.glob(os.path.expanduser(g), recursive=True)},
+        paths = sorted({p for g in a.log for p in glob.glob(os.path.expanduser(g), recursive=True) if os.path.isfile(p)},
                        key=lambda q: os.stat(q).st_mtime, reverse=True)
         for p in paths:
-            with open(p, errors="replace") as fh:
-                lines = fh.read().strip().splitlines()
+            lines = last_lines(p)
             print(f"  {(now - os.stat(p).st_mtime) / 60:8.1f} min ago  {p}\n      last: {(lines[-1] if lines else '(empty)')[:200]}")
         if not paths:
             print("  no file matched")
 
     pane = os.environ.get("TMUX_PANE")
     print(f"\n== 4. UI footer of this session's pane ({pane}) ==")
+    screen = None
     if pane:
-        screen = panelib.Tmux().capture(pane)
+        try:
+            screen = panelib.Tmux().capture(pane)
+        except RuntimeError as e:
+            print(f"  the UI cannot be read ({e}); say so in the report.")
+    else:
+        print("  not running inside tmux: the UI cannot be read; say so in the report.")
+    if screen is not None:
         for l in panelib.status_tail(screen, 12):
             print("  " + l.rstrip()[:200])
         n = panelib.footer_task_count(screen)
         print(f"  footer count: {n if n is not None else 'not shown (open the dialog with uitasks.py)'}")
-        print("  Reconcile: background shells + background agents + scheduled jobs + monitors must equal the UI's N.")
-    else:
-        print("  not running inside tmux: the UI cannot be read; say so in the report.")
+        for row in panelib.agent_panel(screen):
+            print(f"  agent panel: {row}")
+        print("  Reconcile: every background shell, agent, scheduled job and monitor you know of must appear in the UI "
+              "(footer count, agent panel, Background dialog), and everything the UI shows must be one you know of.")
 
 
 if __name__ == "__main__":
