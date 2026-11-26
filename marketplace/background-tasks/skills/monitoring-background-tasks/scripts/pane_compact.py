@@ -8,7 +8,8 @@ A slash command can only come from the terminal input, so a session cannot compa
 session (or reliably itself) any other way. Typing `/compact` without checking is not
 enough: a missed Enter leaves the command sitting in the input box and nothing happens.
 
-Steps: wait up to --wait-idle (default 600 s) for an empty input box with no turn running;
+Steps: wait up to --wait-idle (default 600 s) for an empty input box with no turn running
+(text the person has typed there counts as not empty and is never touched: exit 2);
 type `/compact [KEEP]` and Enter; require "Compacting" on screen within 45 s; then require
 a "Compacted" marker and an idle input box within --timeout (default 420 s).
 Exit 0 only on a verified finish; 2 never idle, 4 did not start, 5 did not finish.
