@@ -108,7 +108,7 @@ uv run --no-project run_hook_tests.py allow-ssh  # one plugin
 ```
 dot-claude/
 ├── .claude-plugin/
-│   └── marketplace.json          # Marketplace catalog (34 plugins)
+│   └── marketplace.json          # Marketplace catalog (36 plugins)
 ├── marketplace/
 │   ├── agent-*/                  # 21 agent plugins
 │   ├── hook-*/                   # 9 hook plugins (each with hooks/test_*.py)
