@@ -29,7 +29,8 @@ Newlines in the message become spaces (a newline would submit early). A message 
 control characters (they would arrive as keys) or longer than 400 characters (Claude
 Code shows a long paste as a "[Pasted text]" placeholder that cannot be checked) is
 refused before anything is typed: write a file the other session can read and send a
-one-line pointer to it.
+one-line pointer to it. So is a message starting with "!" or "#", which would switch
+the input box to another mode.
 
 --no-enter fills the input box and stops, for when the person wants to review and press
 Enter themselves.
@@ -38,7 +39,7 @@ Exit codes:
   0  sent and confirmed: after Enter the input box is on screen and empty again
      (or --read, or --no-enter filled the box)
   1  error: bad arguments, empty or unsafe message (control characters, over 400
-     characters), tmux or ssh failed. Nothing was typed unless the message says otherwise.
+     characters, a leading "!" or "#"), tmux or ssh failed. Nothing was typed unless the message says otherwise.
   2  refused: nothing was typed
   3  Enter was sent but not confirmed: the box is not empty (it still holds the
      message, Enter changed it without submitting, or the person typed straight
@@ -95,6 +96,10 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
         return 1
     if not text:
         print("empty message; nothing sent", file=sys.stderr)
+        return 1
+    if text[0] in "!#":
+        print(f"REFUSED, nothing sent: a leading {text[0]!r} switches the input box to another mode "
+              "(shell command, memory note) instead of sending a message; reword it", file=sys.stderr)
         return 1
 
     pane = tm.resolve(a.target)

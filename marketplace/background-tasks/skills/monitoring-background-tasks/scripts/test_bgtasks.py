@@ -773,8 +773,8 @@ with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(__file__)))
 
 # ---------------------------------------------------------------- fourth review: one Up, never two
 class TypesAfterDown(FakePane):
-    """The person starts typing right after Down, and Up's change of focus is drawn one
-    capture late. A second Up would land in the focused input box and recall history."""
+    """The person starts typing right after Down, and Up's change of focus is drawn
+    very late. A second Up would land in the focused input box and recall history."""
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
@@ -786,7 +786,7 @@ class TypesAfterDown(FakePane):
             if not self.focus or self.lag is not None:
                 self.damage.append("Up sent into the input box: recalls the previous message over the person's text")
             else:
-                self.lag = 1
+                self.lag = 60  # looks: longer than the 3 s unfocus() itself waits
             return
         super().key(pane, key)
         if key == "Down":
@@ -826,5 +826,53 @@ check("send: any failure after the paste says the text was typed", (code, "was t
 p = BrokenCapture()
 code, out = compact(p)
 check("compact: any failure after the paste says the command was typed", (code, "was typed" in out, p.keys), (1, True, []))
+
+
+# ---------------------------------------------------------------- fifth review: agent descriptions are not footer state
+p = FakePane(rows=TWO)
+p.agents = ["enter to validate the parser · since 10:26 PM"]
+check("footer focus: an agent row that says 'enter to v…' is not the footer", panelib.footer_focused(p.render()), False)
+code, out = ui(p)
+check("ui: ... so no Up is sent into the input box on the way out", (code, p.keys.count("Up"), p.damage), (0, 0, []))
+p = FakePane(rows=TWO)
+p.agents = ["esc to interrupt the build · since 10:26 PM", "3 background tasks to manage"]
+check("working / task count: agent rows are not read as footer state either",
+      (panelib.is_working(p.render()), panelib.footer_task_count(p.render()), panelib.footer_has(p.render(), "to manage")), (False, 2, True))
+
+
+p = FakePane(rows=TWO)
+p.agents = ["Move center to viewport · since 10:26 PM"]
+check("footer focus: '…center to v…' in an agent row is not the footer either", panelib.footer_focused(p.render()), False)
+check("agent panel: a status line that is only a branch name is not the panel",
+      (panelib.agent_panel(screen(f"{R}❯\xa0", foot=("  ⎇ main", FOOT))), panelib.background_agents(screen(f"{R}❯\xa0", foot=("  ⎇ main", FOOT)))),
+      ([], False))
+
+
+class ShiftsWhileNavigating(FakePane):
+    """A shell finishes while the selection is being moved to the next row."""
+
+    def key(self, pane, key):
+        super().key(pane, key)
+        if key == "Down" and self.dialog == "list" and len(self.rows) == 3:
+            self.rows.pop(0)
+
+
+p = ShiftsWhileNavigating(rows=[("Shells", "make A"), ("Shells", "make B"), ("Shells", "make C")])
+code, out = ui(p)
+check("ui: the list shifts during navigation: no Enter on whatever is selected now",
+      (code, p.keys, p.damage), (3, ["Down", "Enter", "Enter", "Left", "Down", "Escape"], []))
+
+WRAPPED_LIST = "\n".join(["● earlier reply", DRULE, "  Background", "  2 shells", "",
+                          "  ❯ ● uv run --no-project a_script_with_a_very_long_name.py --and --many",
+                          "      --more --options   running", "    ● sleep 900   running", "",
+                          "  ↑/↓ to navigate · x to stop · Enter to view · Esc to close"])
+got = uitasks.parse_list(WRAPPED_LIST)
+check("list: a row wrapped onto a second line is one row, not two",
+      (got["count"], len(got["rows"]), got["selected"], got["rows"][0]["text"].endswith("--more --options   running")), (2, 2, 0, True))
+
+for first in ("!", "#"):
+    p = FakePane()
+    check(f"send: a message starting with {first!r} would switch the input mode: refused, nothing typed",
+          (send(p, "--text", first + " ls")[0], p.pastes), (1, []))
 
 print(f"\nall {N_CHECKS} checks passed")

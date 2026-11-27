@@ -68,7 +68,7 @@ def parse_list(screen: str) -> dict:
     nums = re.findall(r"(\d+) [a-z]", header)
     out["header"] = header
     out["count"] = int(m.group(1)) if m else (sum(int(n) for n in nums) if nums else None)
-    sec, seen_header = None, False
+    sec, seen_header, untitled = None, False, False
     for l in body:
         t = l.strip()
         if not seen_header:
@@ -87,8 +87,14 @@ def parse_list(screen: str) -> dict:
         if sec is None:
             if not BULLET.match(t):
                 continue
-            sec = "Tasks"
+            sec, untitled = "Tasks", True
             out["sections"].setdefault(sec, [])
+        elif untitled and not BULLET.match(t) and out["rows"]:
+            # In the untitled layout every row starts with a status dot, so a line
+            # without one is the previous row's command wrapping on.
+            out["sections"][sec][-1] += " " + t
+            out["rows"][-1]["text"] += " " + t
+            continue
         t = BULLET.sub("", t)
         out["sections"][sec].append(t)
         if not sec.startswith("Earlier"):
@@ -293,8 +299,6 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             if row["section"] not in OPENABLE:
                 snap["not_opened"].append(row)
                 continue
-            if moved(s1, idx):
-                return
             cur = parse_list(s1)["selected"]
             for _ in range(len(rows) + 1):
                 if cur == idx or moved(s1, idx):

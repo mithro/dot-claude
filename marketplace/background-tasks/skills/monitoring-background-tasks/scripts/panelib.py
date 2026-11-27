@@ -312,12 +312,27 @@ def has_input_box(screen: str) -> bool:
     return input_box(screen) is not None
 
 
-def footer_lines(screen: str) -> list[str]:
-    """The plain lines below the input box (status line, mode line, agent panel).
-    Empty when there is no input box on screen."""
+PANEL_HEAD = re.compile(r"\s*[●◯○◉⏺]\s+main\s*")  # first row of the sub-agent panel
+
+
+def _below_box(screen: str) -> tuple[list[str], list[str]]:
+    """(footer lines, agent panel rows): the plain non-empty lines below the input box,
+    split at the panel's "● main" row. Both empty when there is no input box on screen."""
     lines = plain(screen).splitlines()
     span = _box(lines)
-    return [l for l in lines[span[2] + 1:] if l.strip()] if span else []
+    below = [l for l in lines[span[2] + 1:] if l.strip()] if span else []
+    for i, l in enumerate(below):
+        if PANEL_HEAD.fullmatch(l):
+            return below[:i], below[i + 1:]
+    return below, []
+
+
+def footer_lines(screen: str) -> list[str]:
+    """The plain lines below the input box that the UI itself writes: status line and
+    mode line. The sub-agent panel under them is NOT included: its rows carry each
+    agent's description, free text that can contain any footer phrase ("enter to
+    validate…", "esc to interrupt the build"). Empty when there is no input box."""
+    return _below_box(screen)[0]
 
 
 def above_box(screen: str, n: int = 6) -> list[str]:
@@ -352,7 +367,7 @@ def is_working(screen: str) -> bool:
     """A turn is in progress (a message sent now is queued, not read at once).
 
     With an input box on screen, either sign is enough: "esc to int…" anywhere in the
-    footer (however many agent rows it has grown), or a spinner line at column 0 just
+    footer (however many agent rows follow it), or a spinner line at column 0 just
     above the box. The spinner does not depend on how much of the footer a narrow pane
     left visible. The transcript, which may quote the same words, is never looked at.
     Without an input box (a dialog, or a bare footer string): the last lines of the screen."""
@@ -364,11 +379,7 @@ def is_working(screen: str) -> bool:
 
 def agent_panel(screen: str) -> list[str]:
     """The sub-agent rows of the panel under the footer ("● main" then one row each)."""
-    foot = footer_lines(screen)
-    for i, l in enumerate(foot):
-        if re.fullmatch(r"\s*\S\s+main\s*", l):
-            return [r.strip() for r in foot[i + 1:]]
-    return []
+    return [r.strip() for r in _below_box(screen)[1]]
 
 
 def background_agents(screen: str) -> bool | None:

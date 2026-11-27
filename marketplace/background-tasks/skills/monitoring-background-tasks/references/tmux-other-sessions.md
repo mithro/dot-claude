@@ -97,6 +97,8 @@ It refuses while the screen shows a sub-agent running. A footer that only says
 - **Restart in place** when a session is disconnected or runs an older Claude Code than the
   installed one, at its next idle moment, never mid-turn: send `/exit`, then relaunch in the
   same shell with `claude --resume <id-or-name>` plus the flags it was started with.
+  `pane_send.py` reports exit 3 for a `/exit` that worked (the input box is gone, so it
+  cannot confirm): read the pane to see the shell prompt.
   - `/exit` may open a "Background work is running" dialog (exit and stop / move to
     background / stay). Read it; exiting ends that session's scheduled check-ins, which it
     must recreate.
