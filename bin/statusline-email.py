@@ -3,9 +3,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Claude Code status line: the logged-in claude.ai account, then user@host:cwd.
+"""Claude Code status line: the logged-in claude.ai account, then user:cwd.
 
-Prints e.g. `(me@mith.ro) tim@x1c-work:/home/tim/local`. The working directory
+Prints e.g. `(me@mith.ro) tim:/home/tim/local`. The working directory
 comes from the session JSON on stdin (workspace.current_dir, then cwd).
 
 Claude Code pipes session JSON to a status line command on stdin, but that
@@ -26,10 +26,9 @@ import json
 import os
 import pathlib
 import pwd
-import socket
 import sys
 
-# Shown in place of any part (account, user, host, directory) we cannot find.
+# Shown in place of any part (account, user, directory) we cannot find.
 UNKNOWN = "???"
 
 # xterm-256 colour numbers.
@@ -91,20 +90,12 @@ def current_user() -> str:
         return UNKNOWN
 
 
-def short_hostname() -> str:
-    """What `hostname -s` prints: the hostname up to the first dot."""
-    try:
-        return socket.gethostname().split(".")[0] or UNKNOWN
-    except OSError:
-        return UNKNOWN
-
-
 def prompt_part(cwd: str) -> str:
-    """user@host:cwd, coloured like the Debian bash prompt."""
-    return (
-        f"\033[01;32m{current_user()}@{short_hostname()}\033[00m"
-        f":\033[01;34m{cwd}\033[00m"
-    )
+    """user:cwd, coloured like the Debian bash prompt.
+
+    No hostname: tmux's status bar already shows it.
+    """
+    return f"\033[01;32m{current_user()}\033[00m:\033[01;34m{cwd}\033[00m"
 
 
 def account_part() -> str:
