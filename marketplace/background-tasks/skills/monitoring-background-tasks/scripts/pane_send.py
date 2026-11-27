@@ -24,16 +24,19 @@ dialog appeared, Enter is NOT sent and the text is left where it is (exit 4): te
 the person. One gap remains: the instant between that last look and the Enter key
 (one tmux call; one ssh round trip with --host).
 
-Newlines in the message become spaces (a newline would submit early). For anything long,
-write a file the other session can read and send a one-line pointer to it.
+Newlines in the message become spaces (a newline would submit early). A message with
+control characters (they would arrive as keys) or longer than 400 characters (Claude
+Code shows a long paste as a "[Pasted text]" placeholder that cannot be checked) is
+refused before anything is typed: write a file the other session can read and send a
+one-line pointer to it.
 
 --no-enter fills the input box and stops, for when the person wants to review and press
 Enter themselves.
 
 Exit codes:
   0  sent and confirmed (or --read, or --no-enter filled the box)
-  1  error: bad arguments, empty message, tmux or ssh failed. Nothing was typed unless
-     the message says otherwise.
+  1  error: bad arguments, empty or unsafe message (control characters, over 400
+     characters), tmux or ssh failed. Nothing was typed unless the message says otherwise.
   2  refused: nothing was typed
   3  Enter was sent but the box still holds the message: look at the pane
   4  the message was typed but Enter was withheld: the box holds text that is not
@@ -43,7 +46,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 import time
 
@@ -80,7 +82,11 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             text = fh.read()
     else:
         text = a.text
-    text = re.sub(r"\s+", " ", text).strip()
+    try:
+        text = panelib.clean_message(text)
+    except ValueError as e:
+        print(f"REFUSED, nothing sent: {e}", file=sys.stderr)
+        return 1
     if not text:
         print("empty message; nothing sent", file=sys.stderr)
         return 1

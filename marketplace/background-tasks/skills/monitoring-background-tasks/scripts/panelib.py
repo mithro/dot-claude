@@ -35,6 +35,7 @@ SGR = re.compile(r"\x1b\[([0-9;:]*)m")
 PROMPT = "❯"
 RULE = "─"
 PASTED = re.compile(r"\[Pasted text #\d+[^\]]*\]")  # what the box shows for a long paste
+MAX_MESSAGE = 400  # characters; see clean_message
 
 
 class Clock:
@@ -121,6 +122,29 @@ def is_rule(line: str) -> bool:
     """A rule line drawn by the UI: starts at column 0 (transcript text is indented)."""
     s = plain(line)
     return s.startswith(RULE) and s.count(RULE) >= 20
+
+
+def clean_message(text: str) -> str:
+    """`text` as one line, ready to paste into an input box. Raises ValueError for text
+    that cannot be typed safely:
+
+      * Control characters. tmux writes a buffer's bytes raw between the bracketed-paste
+        markers, so an embedded ESC [ 201 ~ would end the paste early and the bytes after
+        it (an Escape, a Ctrl-C) would arrive as keys.
+      * More than MAX_MESSAGE characters. Claude Code shows a long paste as a
+        "[Pasted text #N]" placeholder, and then nothing can check that the box holds
+        this message and only this message.
+
+    Tabs and newlines become single spaces (a newline would submit early)."""
+    text = re.sub(r"\s+", " ", text).strip()
+    bad = sorted({c for c in text if ord(c) < 0x20 or 0x7f <= ord(c) <= 0x9f})
+    if bad:
+        raise ValueError("the message contains control characters ("
+                         + ", ".join(f"U+{ord(c):04X}" for c in bad) + "); remove them")
+    if len(text) > MAX_MESSAGE:
+        raise ValueError(f"the message is {len(text)} characters (limit {MAX_MESSAGE}): write it to a file the "
+                         "other session can read and send a one-line pointer to it")
+    return text
 
 
 def squash(text: str) -> str:
@@ -286,17 +310,11 @@ def status_tail(screen: str, n: int = 8) -> list[str]:
     return [l for l in plain(screen).splitlines() if l.strip()][-n:]
 
 
-SPINNER_BUSY = re.compile(r"^\S \S+… .*esc to int")  # "✻ Thinking… (12s · esc to interrupt)", at column 0
-
-
-def _status_lines(screen: str) -> list[str]:
-    """Where the UI reports that a turn is running. With an input box: the whole footer,
-    however many agent rows it has grown, plus a spinner line (column 0) just above the
-    box; never the transcript, which may quote the same words. Without an input box
-    (a dialog, or a bare footer string): the last lines of the screen."""
-    if not has_input_box(screen):
-        return status_tail(screen)
-    return footer_lines(screen) + [l for l in above_box(screen) if SPINNER_BUSY.match(l)]
+# A running turn's spinner line, at column 0: "✻ Thinking… (12s · esc to interrupt)",
+# "✽ Compacting conversation…". The glyph is a symbol, never a letter, and never the
+# marks that start a reply (●), a submitted message (❯) or a tool result (⎿). A finished
+# turn leaves "✻ Cooked for 2m 3s", with no ellipsis.
+SPINNER_BUSY = re.compile(r"^[^\s\w●❯⎿] \S.*…")
 
 
 def footer_has(screen: str, phrase: str) -> bool:
@@ -308,8 +326,16 @@ def footer_has(screen: str, phrase: str) -> bool:
 
 def is_working(screen: str) -> bool:
     """A turn is in progress (a message sent now is queued, not read at once).
-    Matches a footer cut short by a narrow pane ("esc to inter…") too."""
-    return any("esc to int" in l for l in _status_lines(screen))
+
+    With an input box on screen, either sign is enough: "esc to int…" anywhere in the
+    footer (however many agent rows it has grown), or a spinner line at column 0 just
+    above the box. The spinner does not depend on how much of the footer a narrow pane
+    left visible. The transcript, which may quote the same words, is never looked at.
+    Without an input box (a dialog, or a bare footer string): the last lines of the screen."""
+    if not has_input_box(screen):
+        return any("esc to int" in l for l in status_tail(screen))
+    return (any("esc to int" in l for l in footer_lines(screen))
+            or any(SPINNER_BUSY.match(l) for l in above_box(screen)))
 
 
 def agent_panel(screen: str) -> list[str]:
@@ -361,12 +387,13 @@ def confirm_typed(tm: Tmux, pane: str, text: str, clock: Clock, timeout: float =
     regard to colour. That catches the person typing between the check and the paste
     (their text and ours would be submitted together), a dialog or permission prompt
     that appeared meanwhile (Enter would answer it), and any typed text the colour
-    heuristic took for a suggestion."""
+    heuristic took for a suggestion. A "[Pasted text #N]" placeholder is never ok:
+    it hides what it stands for, which could be the person's own paste."""
     end = clock.now() + timeout
     while True:
         in_mode, screen = tm.look(pane)
         got = input_box(plain(screen))
-        if not in_mode and got is not None and (squash(got) == squash(text) or PASTED.fullmatch(got.strip())):
+        if not in_mode and got is not None and squash(got) == squash(text):
             return True, screen, ""
         if clock.now() >= end:
             break
@@ -377,6 +404,9 @@ def confirm_typed(tm: Tmux, pane: str, text: str, clock: Clock, timeout: float =
         return False, screen, "the input box is gone (a dialog or permission prompt appeared)"
     if not got:
         return False, screen, "the text did not appear in the input box"
+    if PASTED.search(got):
+        return False, screen, ("the input box shows a pasted-text placeholder, which cannot be checked "
+                               f"against the message: {got!r}")
     return False, screen, f"the input box holds something other than the message: {got!r}"
 
 

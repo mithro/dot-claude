@@ -29,7 +29,8 @@ not block it. A running sub-agent does.)
 
 Exit codes:
   0  compaction verified finished
-  1  error: tmux or ssh failed
+  1  error: --keep has control characters or makes the command longer than 400
+     characters (nothing typed), or tmux or ssh failed
   2  never safe to type within --wait-idle; nothing was typed
   3  the command was typed but Enter was withheld; it is still in the input box
   4  Enter was sent but compaction did not start
@@ -99,6 +100,11 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             return "the footer shows a task total that may include a sub-agent (pass --ignore-agents if you have checked)"
         return None
 
+    try:
+        cmd = panelib.clean_message(f"/compact {a.keep}")
+    except ValueError as e:
+        return done(1, f"FAILED: --keep cannot be typed safely: {e}; nothing sent")
+
     pane = tm.resolve(a.target)
     deadline = clock.now() + a.wait_idle
     while True:
@@ -111,7 +117,6 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
         clock.sleep(5)
     before_echoes = marks(screen)[0]
 
-    cmd = re.sub(r"\s+", " ", f"/compact {a.keep}").strip()
     tm.paste(pane, cmd)
     ok, screen, reason = panelib.confirm_typed(tm, pane, cmd, clock)
     if ok and panelib.is_working(screen):

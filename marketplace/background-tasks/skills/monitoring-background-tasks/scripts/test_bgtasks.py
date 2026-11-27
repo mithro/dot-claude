@@ -280,6 +280,9 @@ class FakePane:
         self.eat_submit = False     # Enter empties the box but nothing is run or echoed
         self.compact_after = None   # look() calls until an accepted /compact finishes
         self.fail_on_key = None     # raise when this key is sent (a tmux failure mid-run)
+        self.grey_prefix = ""       # text of the person's that the UI happens to draw dim
+        self.chip = False           # the box shows a paste as "[Pasted text #1 +0 lines]"
+        self.no_dialog = False      # Enter on the focused footer opens nothing
 
     # --- what tmux would be asked
     def resolve(self, target):
@@ -343,11 +346,15 @@ class FakePane:
             self.focus = True
         elif key == "Up":
             self.focus = False
+        elif key == "Enter" and self.focus and self.no_dialog:
+            pass
         elif key == "Enter" and self.focus:
             self.dialog, self.selected = ("detail" if len(self.rows) == 1 else "list"), 0
         elif key == "Enter" and self.eat_submit:
             self.box = ""
         elif key == "Enter" and not self.swallow_enter and self.box:
+            if self.grey_prefix:
+                self.damage.append("Enter submitted the person's text together with the message")
             self.submitted.append(self.box)
             self.transcript.append(f"❯ {self.box}")
             if self.box.startswith("/compact"):
@@ -377,8 +384,9 @@ class FakePane:
                                   "  ← to go back · x to stop · Enter/Space to close · Esc to close"])
         if self.compact_after is not None:
             t.append("✻ Compacting conversation… (3s)")
-        if self.box:
-            line = f"{R}❯\xa0{self.box}{INV} {RESET}"
+        if self.box or self.grey_prefix:
+            shown = "[Pasted text #1 +0 lines]" if (self.chip and self.box) else self.box
+            line = f"{R}❯\xa0{DIM}{self.grey_prefix}\x1b[22m{shown}{INV} {RESET}"
         elif self.suggestion:
             line = f"{R}❯\xa0{INV}{self.suggestion[0]}\x1b[0;2m{self.suggestion[1:]}{RESET}"
         else:
@@ -598,5 +606,66 @@ check("ui: a dialog the person already has open is left alone", (ui(p)[0], p.key
 p = FakePane(rows=TWO)
 p.prompt = True
 check("ui: permission prompt: no key sent", (ui(p)[0], p.keys), (2, []))
+
+
+# ---------------------------------------------------------------- second review: should-fix items
+# A long paste is shown as a "[Pasted text #N]" chip: its content cannot be checked.
+p = FakePane()
+p.chip = True
+code, out = send(p, "--text", MSG)
+check("send: the box shows a paste chip: Enter withheld", (code, p.keys, "placeholder" in out), (4, [], True))
+p = FakePane()
+check("send: a message long enough to become a chip is refused before typing",
+      (send(p, "--text", "word " * 200)[0], p.pastes, p.keys), (1, [], []))
+p = FakePane()
+p.chip = True
+check("compact: a chip in the box: Enter withheld", (compact(p, "--keep", "the handoff file")[0], p.keys), (3, []))
+p = FakePane()
+check("compact: --keep too long is refused before typing", (compact(p, "--keep", "word " * 200)[0], p.pastes), (1, []))
+
+# Control characters would end the bracketed paste and arrive as keys (Escape, Ctrl-C).
+for name, bad in (("ESC", "hello\x1b[201~ world"), ("Ctrl-C", "hello\x03world"), ("DEL", "a\x7fb"), ("C1", "a\x9bb")):
+    p = FakePane()
+    check(f"send: {name} in the message: refused, nothing typed", (send(p, "--text", bad)[0], p.pastes, p.keys), (1, [], []))
+p = FakePane()
+check("compact: ESC in --keep: refused, nothing typed", (compact(p, "--keep", "keep\x1bthis")[0], p.pastes, p.keys), (1, [], []))
+p = FakePane()
+check("send: tabs and newlines are still just spaces", (send(p, "--text", "a\tb\nc")[0], p.submitted), (0, ["a b c"]))
+
+# The check before Enter must ignore colour: text of the person's that the colour
+# heuristic took for a suggestion is still in the box next to the message.
+p = FakePane()
+p.grey_prefix = "their draft "
+code, out = send(p, "--text", MSG)
+check("send: the person's text drawn dim: typed, but Enter withheld", (code, p.pastes, p.keys, p.damage), (4, [MSG], [], []))
+p = FakePane()
+p.grey_prefix = "their draft "
+check("compact: the person's text drawn dim: Enter withheld", (compact(p)[0], p.keys, p.damage), (3, [], []))
+
+# A turn is running whenever a spinner line sits above the box, whatever the footer shows.
+SPIN = "✻ Thinking… (12s · esc to interrupt)"
+check("working: spinner above the box, footer cut before 'esc to int'",
+      panelib.is_working(screen(f"{R}❯\xa0", above="✻ Thinking… (12s)", foot=("  ⏵⏵ auto mode on · 2 shells · esc t…",))), True)
+check("working: spinner above the box, no hint anywhere", panelib.is_working(screen(f"{R}❯\xa0", above="✽ Compacting conversation…")), True)
+check("idle: a finished-turn line is not a spinner", panelib.is_working(screen(f"{R}❯\xa0", above="✻ Cooked for 2m 3s")), False)
+check("idle: a reply or tool line with an ellipsis is not a spinner",
+      (panelib.is_working(screen(f"{R}❯\xa0", above="● Thinking… about it")),
+       panelib.is_working(screen(f"{R}❯\xa0", above="❯ Wait… what"))), (False, False))
+check("idle: an indented spinner-like line is transcript", panelib.is_working(screen(f"{R}❯\xa0", above="  " + SPIN)), False)
+
+# uitasks: Escape only while a dialog is open, also on the way out after a failure.
+p = FakePane(rows=TWO)
+p.no_dialog = True
+check("ui: Enter opened nothing: no Escape on the way out", (ui(p)[0], p.keys, p.damage), (3, ["Down", "Enter"], []))
+
+# A live input box means no dialog, whatever the footer says.
+check("dialog: 'Esc to close' in the footer under a live input box is not a dialog",
+      panelib.dialog_open(screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  press Esc to close"))), False)
+
+# Only a Compacted line BELOW the last echoed /compact counts.
+old = "\n".join(["❯ /compact first", "  ⎿  Compacted", "● a reply", "❯ /compact second", RULE, f"{R}❯\xa0", RULE, FOOT])
+check("compact marks: an earlier compaction's result does not finish this one", pane_compact.marks(old)[2], False)
+check("compact marks: a result under the last echo does",
+      pane_compact.marks(old.replace("❯ /compact second", "❯ /compact second\n  ⎿  Compacted"))[2], True)
 
 print(f"\nall {N_CHECKS} checks passed")
