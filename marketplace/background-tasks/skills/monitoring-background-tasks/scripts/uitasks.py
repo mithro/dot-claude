@@ -15,7 +15,9 @@ Safety, so it does not disturb the person using the pane:
   * One key at a time, each only after a fresh capture shows the state the previous
     key should have produced: Down only when the footer (not the transcript) says
     "to manage", Enter only when it says "enter to view tasks", a row's Enter only
-    when the list shows that row selected, Left only from a detail view.
+    when the list shows that row selected and still holds the same rows as when it
+    was first read (a task that finishes mid-run shifts the rows: it then stops,
+    exit 3), Left only from a detail view.
   * Escape only while a dialog is visibly open below the last rule line (outside a
     dialog, Escape interrupts the running turn), and never a second Escape until 5 s
     have passed with the dialog still open on a fresh capture.
@@ -254,13 +256,26 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
 
         # ---- 2. open each shell row to read its full details
         rows = snap["rows"]
+
+        def moved(s: str, idx: int) -> bool:
+            """The list no longer holds the rows first read: a task finished or started,
+            so position idx may now be a different row, perhaps one that must not be opened."""
+            if parse_list(s)["rows"] == rows:
+                return False
+            if not any("the task list changed" in p for p in problems):
+                problems.append(f"the task list changed while it was being read (before row {idx}); "
+                                "stopped navigating. Run again for a complete snapshot")
+            return True
+
         for idx, row in enumerate(rows):
             if row["section"] not in OPENABLE:
                 snap["not_opened"].append(row)
                 continue
+            if moved(s1, idx):
+                return
             cur = parse_list(s1)["selected"]
             for _ in range(len(rows) + 1):
-                if cur == idx:
+                if cur == idx or moved(s1, idx):
                     break
                 tm.key(pane, "Down" if (cur is None or cur < idx) else "Up")
                 was = cur
@@ -268,6 +283,8 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
                 if not s1:
                     break
                 cur = parse_list(s1)["selected"]
+            if s1 and moved(s1, idx):
+                return
             if not s1 or cur != idx:
                 problems.append(f"could not select row {idx}; stopped navigating")
                 return

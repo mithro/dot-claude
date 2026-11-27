@@ -554,6 +554,28 @@ code, out = ui(p)
 check("ui: old layout: only the shell row is opened", (code, p.keys, p.damage), (0, ["Down", "Enter", "Enter", "Left", "Escape"], []))
 check("ui: ... and the others are listed as not opened", out.count('"section": "Background agents"') >= 2, True)
 
+class ShiftingPane(FakePane):
+    """The first shell finishes just after its detail view is left: every row moves up one."""
+
+    def key(self, pane, key):
+        super().key(pane, key)
+        if key == "Left" and len(self.rows) == 3:
+            self.rows.pop(0)
+            self.selected = 0
+
+
+p = ShiftingPane(rows=[("Shells", "make A"), ("Shells", "make B"), ("Background agents", "Review the parser")], old_layout=True)
+code, out = ui(p)
+check("ui: the list shifts mid-walk: no Enter on the row that moved into place",
+      (code, p.keys, p.damage), (3, ["Down", "Enter", "Enter", "Left", "Escape"], []))
+check("ui: ... no detail filed under another row's name, and the reason is given",
+      ("Review the parser" in out.split('"details"')[1].split('"not_opened"')[0], "the task list changed" in out), (False, True))
+
+p = ShiftingPane(rows=[("Shells", "make A"), ("Shells", "make B"), ("Shells", "make C")])
+code, out = ui(p)
+check("ui: the list shifts mid-walk (all shells): stops, even though the next row is a shell",
+      (code, p.keys, p.damage), (3, ["Down", "Enter", "Enter", "Left", "Escape"], []))
+
 p = FakePane(rows=TWO)
 p.fail_on_key = "Left"
 try:

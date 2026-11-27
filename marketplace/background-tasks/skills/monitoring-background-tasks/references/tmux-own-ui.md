@@ -73,6 +73,10 @@ list. **Escape** closes the whole dialog, from the list or from a detail view.
 What **Enter** does on an agent, scheduled or monitor row (earlier layout) was never
 captured. `uitasks.py` lists those rows and does not open them.
 
+The list is live: when a task finishes, the rows below it move up. `uitasks.py` compares the
+list with its first reading before every row's **Enter** and stops (exit 3) if any row
+differs, because the selected position may now hold a different row. Run it again.
+
 ## Rules
 
 1. Capture with `-e` first. Act only if the pane is not in copy mode and the input box is on
