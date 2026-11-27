@@ -21,13 +21,16 @@ account is hashed onto FALLBACK_COLOURS, which shares no colour with the
 pinned ones, so a new account can never pass for a known one.
 """
 
-import getpass
 import hashlib
 import json
 import os
 import pathlib
+import pwd
 import socket
 import sys
+
+# Shown in place of any part (account, user, host, directory) we cannot find.
+UNKNOWN = "???"
 
 # xterm-256 colour numbers.
 PINNED_COLOURS = {
@@ -74,26 +77,44 @@ def session_cwd(session_json: str) -> str:
             return workspace["current_dir"]
         if session.get("cwd"):
             return session["cwd"]
-    return os.getcwd()
+    try:
+        return os.getcwd()
+    except OSError:  # e.g. the directory was deleted under us
+        return UNKNOWN
+
+
+def current_user() -> str:
+    """What `whoami` prints: the name of the effective uid, ignoring $USER."""
+    try:
+        return pwd.getpwuid(os.geteuid()).pw_name or UNKNOWN
+    except KeyError:  # uid with no passwd entry
+        return UNKNOWN
+
+
+def short_hostname() -> str:
+    """What `hostname -s` prints: the hostname up to the first dot."""
+    try:
+        return socket.gethostname().split(".")[0] or UNKNOWN
+    except OSError:
+        return UNKNOWN
 
 
 def prompt_part(cwd: str) -> str:
     """user@host:cwd, coloured like the Debian bash prompt."""
-    user = getpass.getuser()
-    host = socket.gethostname().split(".")[0]
-    return f"\033[01;32m{user}@{host}\033[00m:\033[01;34m{cwd}\033[00m"
+    return (
+        f"\033[01;32m{current_user()}@{short_hostname()}\033[00m"
+        f":\033[01;34m{cwd}\033[00m"
+    )
 
 
 def account_part() -> str:
-    path = config_file()
     try:
-        account = json.loads(path.read_text()).get("oauthAccount") or {}
-    except (OSError, json.JSONDecodeError) as e:
-        # Visible in the status line rather than a silent blank.
-        return f"(account unknown: {path}: {e.__class__.__name__})"
-
+        account = json.loads(config_file().read_text()).get("oauthAccount") or {}
+    except (OSError, json.JSONDecodeError, AttributeError):
+        account = {}
     email = account.get("emailAddress")
-    return coloured(email) if email else "(not logged in to claude.ai)"
+    # An unknown account is uncoloured, so it cannot pass for a real one.
+    return coloured(email) if email else f"({UNKNOWN})"
 
 
 def main() -> int:
