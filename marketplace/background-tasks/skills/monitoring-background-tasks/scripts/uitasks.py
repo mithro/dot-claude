@@ -89,9 +89,10 @@ def parse_list(screen: str) -> dict:
                 continue
             sec, untitled = "Tasks", True
             out["sections"].setdefault(sec, [])
-        elif untitled and not BULLET.match(t) and out["rows"]:
-            # In the untitled layout every row starts with a status dot, so a line
-            # without one is the previous row's command wrapping on.
+        elif untitled and sec == "Tasks" and not BULLET.match(t):
+            # In the untitled layout every active row starts with a status dot, so a
+            # line without one is the previous row's command wrapping on. (Only here:
+            # under "Earlier in this session" the last row of `rows` is a different row.)
             out["sections"][sec][-1] += " " + t
             out["rows"][-1]["text"] += " " + t
             continue

@@ -875,4 +875,29 @@ for first in ("!", "#"):
     check(f"send: a message starting with {first!r} would switch the input mode: refused, nothing typed",
           (send(p, "--text", first + " ls")[0], p.pastes), (1, []))
 
+
+# ---------------------------------------------------------------- sixth review: wrapped lines under "Earlier"
+def earlier(*lines):
+    return "\n".join(["● earlier reply", DRULE, "  Background", "  2 shells", "", "  ❯ ● sleep 800   running", "    ● sleep 900   running", "",
+                      "      Earlier in this session (1)", *lines, "", "  ↑/↓ to navigate · x to stop · Enter to view · Esc to close"])
+
+
+got = uitasks.parse_list(earlier("    ● uv run a_long_script.py --with --many", "        --more --options   completed"))
+check("list: a finished row that wraps is not joined to a running row",
+      [r["text"] for r in got["rows"]], ["sleep 800   running", "sleep 900   running"])
+got = uitasks.parse_list(earlier("      make docs   completed"))
+check("list: a finished row drawn without a status dot does not crash", (got["count"], len(got["rows"])), (2, 2))
+
+
+DIRTY = screen(f"{R}❯\xa0", foot=("  ● main", "  ⏵⏵ auto mode on · 2 shells · esc to interrupt · enter to view tasks"))
+check("agent panel: a status line '● main' ABOVE the mode line is not the panel head",
+      (panelib.agent_panel(DIRTY), panelib.is_working(DIRTY), panelib.footer_focused(DIRTY), panelib.why_not_send(False, DIRTY) is None),
+      ([], True, True, False))
+p = FakePane(rows=TWO)
+p.agents = ["reviewing · since 10:26 PM"]
+check("agent panel: the real panel is still found", (panelib.agent_panel(p.render()), panelib.background_agents(p.render())),
+      (["◯ general-purpose  reviewing · since 10:26 PM"], True))
+check("footer count: with an input box and nothing under it, the transcript is not read",
+      panelib.footer_task_count("\n".join(["  told it: 7 background tasks · ↓ to manage", RULE, f"{R}❯\xa0", RULE])), None)
+
 print(f"\nall {N_CHECKS} checks passed")

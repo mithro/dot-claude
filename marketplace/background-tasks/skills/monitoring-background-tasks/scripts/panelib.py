@@ -313,6 +313,7 @@ def has_input_box(screen: str) -> bool:
 
 
 PANEL_HEAD = re.compile(r"\s*[●◯○◉⏺]\s+main\s*")  # first row of the sub-agent panel
+PANEL_ROW = re.compile(r"\s*[●◯○◉⏺]\s+\S")           # every row under it: "◯ <type>  <description>"
 
 
 def _below_box(screen: str) -> tuple[list[str], list[str]]:
@@ -322,7 +323,10 @@ def _below_box(screen: str) -> tuple[list[str], list[str]]:
     span = _box(lines)
     below = [l for l in lines[span[2] + 1:] if l.strip()] if span else []
     for i, l in enumerate(below):
-        if PANEL_HEAD.fullmatch(l):
+        # The panel is the LAST thing on screen: its head, then only agent rows. A custom
+        # status line that happens to read "● main" sits above the mode line, which is
+        # not an agent row, so it is not taken for the head.
+        if PANEL_HEAD.fullmatch(l) and all(PANEL_ROW.match(r) for r in below[i + 1:]):
             return below[:i], below[i + 1:]
     return below, []
 
@@ -500,7 +504,7 @@ def footer_task_count(screen: str) -> int | None:
     """The task count in the footer, if shown. Claude Code versions word it differently:
     'N background tasks', or a breakdown such as '2 shells' (summed here). On 2.1.332
     the breakdown leaves sub-agents out; they are listed in the panel under the footer."""
-    for l in reversed(footer_lines(screen) or status_tail(screen, 4)):
+    for l in reversed(footer_lines(screen) if has_input_box(screen) else status_tail(screen, 4)):
         if "to man" not in l and "background task" not in l and "to view tasks" not in l:
             continue
         m = re.search(r"(\d+) background tasks?", l)
