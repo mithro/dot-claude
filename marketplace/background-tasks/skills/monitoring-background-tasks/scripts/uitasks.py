@@ -165,7 +165,7 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
     snaps = pathlib.Path(a.state_dir) / (re.sub(r"[^A-Za-z0-9]+", "_", f"{a.socket or ''}_{pane}").strip("_"))
     stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
     raw = snaps / f"{stamp}-screens"
-    raw.mkdir(parents=True)
+    raw.mkdir(parents=True, mode=0o700)  # the screens hold whatever the transcript showed
     n_raw = 0
 
     def log(label: str, screen: str) -> None:

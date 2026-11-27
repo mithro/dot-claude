@@ -195,11 +195,22 @@ def main() -> None:
     if a.log:
         print("\n== 3. Logs ==")
         now = time.time()
-        paths = sorted({p for g in a.log for p in glob.glob(os.path.expanduser(g), recursive=True) if os.path.isfile(p)},
-                       key=lambda q: os.stat(q).st_mtime, reverse=True)
+        mtimes = {}
+        for g in a.log:
+            for p in glob.glob(os.path.expanduser(g), recursive=True):
+                try:
+                    if os.path.isfile(p):
+                        mtimes[p] = os.stat(p).st_mtime
+                except OSError:  # deleted between the glob and the stat
+                    pass
+        paths = sorted(mtimes, key=mtimes.get, reverse=True)
         for p in paths:
-            lines = last_lines(p)
-            print(f"  {(now - os.stat(p).st_mtime) / 60:8.1f} min ago  {p}\n      last: {(lines[-1] if lines else '(empty)')[:200]}")
+            try:
+                lines = last_lines(p)
+            except OSError as e:
+                print(f"  {p}: {e}")
+                continue
+            print(f"  {(now - mtimes[p]) / 60:8.1f} min ago  {p}\n      last: {(lines[-1] if lines else '(empty)')[:200]}")
         if not paths:
             print("  no file matched")
 
