@@ -10,9 +10,9 @@ enough: a missed Enter leaves the command sitting in the input box and nothing h
 
 Steps:
  1. Resolve TARGET to a pane id once. Wait up to --wait-idle (default 600 s) until the
-    pane is not in copy mode, shows an empty input box, has no turn running and shows no
-    sub-agent running. Text the person has typed counts as not empty and is never
-    touched. A footer that only says "N background tasks" could be hiding an agent, so
+    pane is not in copy mode, shows an empty input box that has focus (not the task
+    footer), has no turn running and shows no sub-agent running. Text the person has
+    typed counts as not empty and is never touched. A footer that only says "N background tasks" could be hiding an agent, so
     it also waits; pass --ignore-agents once you have checked there is none.
  2. Type `/compact [KEEP]`, then look again: the box must hold exactly that command and
     no turn may have started. Otherwise Enter is withheld (exit 3).

@@ -93,7 +93,9 @@ Your pane is `$TMUX_PANE`. Reading is always safe: `tmux capture-pane -p -t "$TM
    `❯` is the UI's suggestion; default-colour text is the person's typing — if it is there,
    send nothing and never clear it. The pane must not be in copy mode
    (`tmux display-message -p -t PANE '#{pane_in_mode}'` prints `0`): a capture looks normal
-   while the person is scrolled back, but keys would go to copy mode.
+   while the person is scrolled back, but keys would go to copy mode. The footer must not
+   read "enter to view tasks": focus is then on the task footer, and Enter opens the
+   Background dialog instead of submitting.
 2. Send one key, then confirm on a fresh capture that the screen shows the state that key
    should produce before the next.
 3. `Escape` only while a dialog is visibly open: anywhere else it interrupts the running turn.

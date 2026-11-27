@@ -13,7 +13,8 @@ resolved to a pane id once, at the start; every later step uses that id.
 
 Before typing, the pane must show a Claude Code input box that is EMPTY (a grey
 suggestion counts as empty; text in the default colour is the person's and is never
-touched), must not be in copy mode, and must not be mid-turn ("esc to interrupt")
+touched), must not be in copy mode, must not have focus on the task footer ("enter to
+view tasks": Enter would open the Background dialog), and must not be mid-turn ("esc to interrupt")
 unless --queue is given: a message sent mid-turn is queued and read at the session's
 next step. By default it refuses at once; with --wait it re-checks every 10 s for up
 to that many seconds. It never sends Escape or Ctrl-C.
@@ -38,7 +39,8 @@ Exit codes:
   1  error: bad arguments, empty or unsafe message (control characters, over 400
      characters), tmux or ssh failed. Nothing was typed unless the message says otherwise.
   2  refused: nothing was typed
-  3  Enter was sent but the box still holds the message: look at the pane
+  3  Enter was sent but not confirmed: the box still holds the message, or no input
+     box is on screen any more. Look at the pane.
   4  the message was typed but Enter was withheld: the box holds text that is not
      (only) the message. Nothing was submitted; the text is still in the box.
 """
@@ -124,11 +126,16 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
         clock.sleep(0.5)
         _, screen = tm.look(pane)
         left = panelib.input_box(panelib.plain(screen))
-        if panelib.squash(text) not in panelib.squash(left or ""):
+        # Submitted = the input box is on screen and no longer holds the message. No
+        # input box at all means something else took the screen (a dialog, a
+        # permission prompt): that is not a confirmation.
+        if left is not None and panelib.squash(text) not in panelib.squash(left):
             break
         if clock.now() >= end:
             print("\n".join(l[:200] for l in panelib.status_tail(screen, 12)))
-            print(f"\nNOT CONFIRMED: Enter was sent but the input box still holds {left!r}.", file=sys.stderr)
+            print("\nNOT CONFIRMED: Enter was sent but "
+                  + ("no input box is on screen (a dialog or permission prompt is open?)" if left is None
+                     else f"the input box still holds {left!r}") + ". Look at the pane.", file=sys.stderr)
             return 3
     print("\n".join(l[:200] for l in panelib.status_tail(screen, 12)))
     print(f"\nsent {len(text)} chars to {a.target} ({pane})" + (f" on {a.host}" if a.host else "")

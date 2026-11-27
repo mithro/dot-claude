@@ -668,4 +668,42 @@ check("compact marks: an earlier compaction's result does not finish this one", 
 check("compact marks: a result under the last echo does",
       pane_compact.marks(old.replace("❯ /compact second", "❯ /compact second\n  ⎿  Compacted"))[2], True)
 
+
+# ---------------------------------------------------------------- third review: the focused task footer
+# After Down the footer has focus ("enter to view tasks"): Enter opens the Background
+# dialog instead of submitting the input box.
+p = FakePane(rows=TWO)
+p.focus = True
+code, out = send(p, "--text", MSG)
+check("send: the task footer has focus: nothing typed", (code, p.pastes, p.keys, "footer has focus" in out), (2, [], [], True))
+p = FakePane(rows=TWO)
+p.focus = True
+check("compact: the task footer has focus: nothing typed", (compact(p)[0], p.pastes, p.keys), (2, [], []))
+
+
+def focus_footer(pane):
+    pane.focus = True
+
+
+p = FakePane(rows=TWO)
+p.on_paste = focus_footer  # the person presses Down between the check and the paste
+check("send: the footer took focus in the gap: Enter withheld", (send(p, "--text", MSG)[0], p.keys, p.dialog), (4, [], None))
+p = FakePane(rows=TWO)
+p.on_paste = focus_footer
+check("compact: the footer took focus in the gap: Enter withheld", (compact(p)[0], p.keys, p.dialog), (3, [], None))
+
+
+class EnterOpensSomething(FakePane):
+    """Enter does not submit: something without an input box takes over the screen."""
+
+    def key(self, pane, key):
+        self.keys.append(key)
+        if key == "Enter":
+            self.prompt = True
+
+
+p = EnterOpensSomething()
+code, out = send(p, "--text", MSG)
+check("send: no input box after Enter is not 'sent'", (code, p.submitted, f"sent {len(MSG)} chars" in out), (3, [], False))
+
 print(f"\nall {N_CHECKS} checks passed")

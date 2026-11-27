@@ -365,6 +365,16 @@ def background_agents(screen: str) -> bool | None:
     return False
 
 
+FOOTER_FOCUSED = "the task footer has focus (someone pressed Down): Enter would open the Background dialog, not submit"
+
+
+def footer_focused(screen: str) -> bool:
+    """Down from an empty input box moves focus to the task footer, which then reads
+    "enter to view tasks". Text can still land in the box, but Enter opens the
+    Background dialog instead of submitting."""
+    return footer_has(screen, "enter to view tasks")
+
+
 def why_not_send(in_mode: bool, screen: str, allow_working: bool = False) -> str | None:
     """Why nothing may be typed into this pane now, or None if it is safe.
     `screen` must be a colour capture taken together with `in_mode` (`Tmux.look`)."""
@@ -375,6 +385,8 @@ def why_not_send(in_mode: bool, screen: str, allow_working: bool = False) -> str
         return "no Claude Code input box on screen (a dialog, a permission prompt, or not a Claude session)"
     if box:
         return f"the person has text in the input box: {box!r}"
+    if footer_focused(screen):
+        return FOOTER_FOCUSED
     if is_working(screen) and not allow_working:
         return "the session is mid-turn"
     return None
@@ -387,13 +399,14 @@ def confirm_typed(tm: Tmux, pane: str, text: str, clock: Clock, timeout: float =
     regard to colour. That catches the person typing between the check and the paste
     (their text and ours would be submitted together), a dialog or permission prompt
     that appeared meanwhile (Enter would answer it), and any typed text the colour
-    heuristic took for a suggestion. A "[Pasted text #N]" placeholder is never ok:
+    heuristic took for a suggestion. Focus on the task footer is not ok either (Enter
+    would open the Background dialog). A "[Pasted text #N]" placeholder is never ok:
     it hides what it stands for, which could be the person's own paste."""
     end = clock.now() + timeout
     while True:
         in_mode, screen = tm.look(pane)
         got = input_box(plain(screen))
-        if not in_mode and got is not None and squash(got) == squash(text):
+        if not in_mode and got is not None and squash(got) == squash(text) and not footer_focused(screen):
             return True, screen, ""
         if clock.now() >= end:
             break
@@ -404,6 +417,8 @@ def confirm_typed(tm: Tmux, pane: str, text: str, clock: Clock, timeout: float =
         return False, screen, "the input box is gone (a dialog or permission prompt appeared)"
     if not got:
         return False, screen, "the text did not appear in the input box"
+    if footer_focused(screen):
+        return False, screen, FOOTER_FOCUSED
     if PASTED.search(got):
         return False, screen, ("the input box shows a pasted-text placeholder, which cannot be checked "
                                f"against the message: {got!r}")

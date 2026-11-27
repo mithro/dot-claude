@@ -31,12 +31,13 @@ Prefer SendMessage when the peer is listed by ListAgents: it does not touch the 
 
 1. resolves TARGET to a pane id once, so a window switch cannot redirect later keys;
 2. refuses (exit 2, nothing typed) unless the pane is out of copy mode and shows an empty
-   input box. By default it refuses at once; `--wait SECS` keeps re-checking;
+   input box that has focus (a footer reading "enter to view tasks" has taken it: Enter
+   would open the Background dialog). By default it refuses at once; `--wait SECS` keeps re-checking;
 3. pastes through a tmux buffer, so no shell or key-name quoting is involved, locally or
    over ssh;
 4. presses Enter only if the box then holds exactly the message. If the person typed at the
    same moment or a dialog appeared, it stops with the text left in the box (exit 4);
-5. confirms the box emptied (exit 3 if not).
+5. confirms the box is still on screen and no longer holds the message (exit 3 if not).
 
 `TARGET` as `session:window` means that window's active pane at the moment the script
 starts. Give `session:window.pane` or a `%id` when the window is split.
