@@ -251,6 +251,13 @@
       "category": "productivity"
     },
     {
+      "name": "nested-chrome",
+      "description": "Private agent Chrome in a nested Xephyr display \u2014 the launching-nested-chrome skill plus nested_chrome.py (copy the Claude account's Chrome profile, no sync, two-way clipboard bridge, CDP) and cdp_eval.py",
+      "version": "1.0.0",
+      "source": "./marketplace/nested-chrome",
+      "category": "productivity"
+    },
+    {
       "name": "background-tasks",
       "description": "Monitoring Claude Code background work \u2014 the monitoring-background-tasks skill plus scripts: unfiltered process-tree check, Background-dialog capture through tmux, safe send and verified /compact into other sessions' panes",
       "version": "1.0.0",
