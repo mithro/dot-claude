@@ -43,7 +43,7 @@ def colour_for(email: str) -> int:
 
 
 def coloured(email: str) -> str:
-    return f"\033[1;38;5;{colour_for(email)}m{email}\033[0m"
+    return f"\033[38;5;{colour_for(email)}m{email}\033[0m"
 
 
 def config_file() -> pathlib.Path:
