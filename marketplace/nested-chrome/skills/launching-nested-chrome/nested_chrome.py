@@ -32,6 +32,8 @@ CHROME_DIR = os.path.expanduser("~/.config/google-chrome")
 CLAUDE_EXT = "fcoeoabgfenejglbffodgkkbkcdhcgfn"  # Claude in Chrome
 NATIVE_HOST = "com.anthropic.claude_code_browser_extension.json"
 STATE_FILE = "nested-chrome.json"
+# Text that must be in the command line of each process the state file names.
+PROCESS_MARK = {"xephyr": "Xephyr", "clipbridge": "clipbridge", "chrome": "chrome"}
 
 # Profile parts never copied: caches (large, rebuilt), the open tabs of the
 # real browser, sync and push-messaging identities (a clone would share the
@@ -146,12 +148,44 @@ def spawn(cmd, env=None, log=None):
                             stderr=subprocess.STDOUT, start_new_session=True).pid
 
 
-def alive(pid):
+def boot_id():
+    return open("/proc/sys/kernel/random/boot_id").read().strip()
+
+
+def proc_start(pid):
+    """Start time (clock ticks since boot) of a live process, else None."""
     try:
-        os.kill(pid, 0)
-        return True
-    except (ProcessLookupError, TypeError):
+        stat = open(f"/proc/{pid}/stat").read()
+    except OSError:
+        return None
+    # The command name (field 2) may contain spaces and brackets.
+    fields = stat.rsplit(")", 1)[1].split()
+    return None if fields[0] == "Z" else int(fields[19])
+
+
+def proc_cmdline(pid):
+    try:
+        return open(f"/proc/{pid}/cmdline", "rb").read().decode(errors="replace")
+    except OSError:
+        return ""
+
+
+def alive(state, key):
+    """Is the process `start` recorded under `key` still running?
+
+    A pid alone is not enough: the state file outlives a reboot or crash,
+    and the pid may since have gone to an unrelated process that `stop`
+    would then kill. So the process must also look like ours (command
+    line) and have started when ours did (same boot, same start time).
+    Reads /proc rather than kill(pid, 0), which raises PermissionError for
+    another user's process."""
+    pid = state.get(key)
+    start = proc_start(pid)
+    if start is None or PROCESS_MARK[key] not in proc_cmdline(pid):
         return False
+    if "starts" not in state:  # written by a version that recorded pids only
+        return True
+    return state.get("boot_id") == boot_id() and state["starts"].get(key) == start
 
 
 def load_state(dest):
@@ -161,12 +195,58 @@ def load_state(dest):
         return None
 
 
-def cdp_up(port):
+def save_state(dest, state):
+    with open(os.path.join(dest, STATE_FILE), "w") as f:
+        json.dump(state, f)
+
+
+def stop_recorded(dest, state):
+    """Stop what the state file recorded and remove it, whatever happens."""
+    try:
+        for k in ("chrome", "clipbridge", "xephyr"):  # Chrome first so it saves its profile
+            if not alive(state, k):
+                continue
+            try:
+                os.killpg(state[k], signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                continue
+            for _ in range(50):
+                if not alive(state, k):
+                    break
+                time.sleep(0.1)
+            else:
+                print(f"warning: {k} (pid {state[k]}) did not exit after SIGTERM", file=sys.stderr)
+    finally:
+        try:
+            os.remove(os.path.join(dest, STATE_FILE))
+        except FileNotFoundError:
+            pass
+
+
+def devtools_active_port(dest):
+    """(port, websocket path) Chrome wrote once its CDP server was listening."""
+    try:
+        port, ws_path = open(os.path.join(dest, "DevToolsActivePort")).read().split()[:2]
+        return int(port), ws_path
+    except (OSError, ValueError):
+        return None
+
+
+def cdp_up(port, ws_path):
+    """Version info from the CDP server on `port`, only if it is our Chrome.
+
+    Anything can answer on a local port - another browser that had it first,
+    say - and evaluating JavaScript there would run in the wrong browser with
+    its cookies. Our Chrome is the one whose browser websocket path matches
+    the DevToolsActivePort file in our own user-data-dir."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=2) as r:
-            return json.load(r)
-    except OSError:
+            version = json.load(r)
+    except (OSError, ValueError):
         return None
+    if not ws_path or not version.get("webSocketDebuggerUrl", "").endswith(ws_path):
+        return None
+    return version
 
 
 def cmd_profiles(args):
@@ -186,8 +266,14 @@ def cmd_start(args):
     account = args.account or claude_account()
     dest = nested_dir(account)
     state = load_state(dest)
-    if state and alive(state.get("chrome")):
+    if state and alive(state, "chrome"):
         sys.exit(f"already running: DISPLAY=:{state['display']} CDP port {state['port']} ({dest})")
+    if state:
+        # Chrome is gone (closed or crashed) but its Xephyr and clipboard
+        # bridge may live on. Starting again without stopping them would
+        # orphan both, the bridge still copying the user's clipboard.
+        print("cleaning up the previous run (Chrome had exited)")
+        stop_recorded(dest, state)
 
     if args.refresh and os.path.isdir(dest):
         shutil.rmtree(dest)
@@ -199,6 +285,10 @@ def cmd_start(args):
         shutil.rmtree(tmp, ignore_errors=True)
         os.makedirs(os.path.join(tmp, "Default") if args.fresh else tmp)
         if p:
+            if os.path.lexists(os.path.join(CHROME_DIR, "SingletonLock")):
+                print("warning: Chrome is running, so the copy may catch a database mid-write. "
+                      "If logins are missing in the nested browser, close Chrome and "
+                      "run `start --refresh`.", file=sys.stderr)
             print(f"copying profile {p['dir']!r} ({p['name']}) -> {dest}")
             copy_profile(os.path.join(CHROME_DIR, p["dir"]), tmp)
         harden_prefs(tmp, dest)
@@ -207,39 +297,58 @@ def cmd_start(args):
 
     w, h = args.size.split("x")
     display = free_display()
-    port = args.port or 9300 + display
     host = os.environ.get("DISPLAY", ":0")
-    xephyr = spawn(["Xephyr", f":{display}", "-screen", args.size, "-title",
-                    f"Nested Chrome ({account}) :{display}", "-resizeable", "-no-host-grab"],
-                   log=os.path.join(dest, "xephyr.log"))
+    state = {"account": account, "display": display, "port": None, "ws_path": None,
+             "boot_id": boot_id(), "starts": {}}
+
+    def record(key, pid):
+        # Saved after every spawn, so `stop` can always find what was started.
+        state[key] = pid
+        state["starts"][key] = proc_start(pid)
+        save_state(dest, state)
+
+    record("xephyr", spawn(["Xephyr", f":{display}", "-screen", args.size, "-title",
+                            f"Nested Chrome ({account}) :{display}", "-resizeable", "-no-host-grab"],
+                           log=os.path.join(dest, "xephyr.log")))
     for _ in range(50):
         if os.path.exists(f"/tmp/.X11-unix/X{display}"):
             break
         time.sleep(0.2)
     else:
+        stop_recorded(dest, state)
         sys.exit(f"error: Xephyr :{display} did not start; see {dest}/xephyr.log")
 
     # Without WAYLAND_DISPLAY (and with --ozone-platform=x11) Chrome cannot
     # open its window on a Wayland desktop instead of the nested display.
     env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}
     env["DISPLAY"] = f":{display}"
-    bridge = spawn([sys.executable, os.path.abspath(__file__), "clipbridge", host, f":{display}"],
-                   log=os.path.join(dest, "clipbridge.log"))
-    chrome = spawn(["google-chrome", f"--user-data-dir={dest}", "--profile-directory=Default",
-                    "--ozone-platform=x11", "--disable-sync",
-                    "--no-first-run", "--no-default-browser-check",
-                    "--window-position=0,0", f"--window-size={w},{h}",
-                    f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1",
-                    *args.urls], env=env, log=os.path.join(dest, "chrome.log"))
-    json.dump({"account": account, "display": display, "port": port, "xephyr": xephyr,
-               "clipbridge": bridge, "chrome": chrome}, open(os.path.join(dest, STATE_FILE), "w"))
+    record("clipbridge", spawn([sys.executable, os.path.abspath(__file__), "clipbridge", host, f":{display}"],
+                               log=os.path.join(dest, "clipbridge.log")))
+    # Port 0: Chrome picks a free port and writes it to DevToolsActivePort in
+    # its user-data-dir. A fixed port that something else already holds does
+    # not stop Chrome starting; the other listener would just answer for it.
+    active_port_file = os.path.join(dest, "DevToolsActivePort")
+    if os.path.exists(active_port_file):
+        os.remove(active_port_file)  # left by the previous run
+    record("chrome", spawn(["google-chrome", f"--user-data-dir={dest}", "--profile-directory=Default",
+                            "--ozone-platform=x11", "--disable-sync",
+                            "--no-first-run", "--no-default-browser-check",
+                            "--window-position=0,0", f"--window-size={w},{h}",
+                            f"--remote-debugging-port={args.port or 0}",
+                            "--remote-debugging-address=127.0.0.1",
+                            *args.urls], env=env, log=os.path.join(dest, "chrome.log")))
     for _ in range(60):
-        if cdp_up(port):
+        active = devtools_active_port(dest)
+        if active and cdp_up(*active):
             break
         time.sleep(0.5)
     else:
-        sys.exit(f"error: Chrome CDP port {port} not up; see {dest}/chrome.log")
-    print(f"running: account={account} DISPLAY=:{display} CDP=http://127.0.0.1:{port} dir={dest}")
+        sys.exit("error: Chrome did not open its CDP port"
+                 + (f" (is port {args.port} already in use?)" if args.port else "")
+                 + f"; see {dest}/chrome.log, then run `stop`")
+    state["port"], state["ws_path"] = active
+    save_state(dest, state)
+    print(f"running: account={account} DISPLAY=:{display} CDP=http://127.0.0.1:{state['port']} dir={dest}")
 
 
 def cmd_status(args):
@@ -249,9 +358,14 @@ def cmd_status(args):
     if not state:
         sys.exit(f"not started ({dest})")
     for k in ("xephyr", "clipbridge", "chrome"):
-        print(f"{k:<10} pid {state[k]:<8} {'running' if alive(state[k]) else 'stopped'}")
-    v = cdp_up(state["port"])
-    print(f"display    :{state['display']}\ncdp        {state['port']} {v['Browser'] if v else 'down'}")
+        pid = state.get(k)
+        print(f"{k:<10} pid {pid if pid else '-':<8} {'running' if alive(state, k) else 'stopped'}")
+    port = state.get("port")
+    if "ws_path" in state:
+        v = alive(state, "chrome") and port and cdp_up(port, state["ws_path"])
+    else:  # state from a version that could not tell whose port it was
+        v = None
+    print(f"display    :{state['display']}\ncdp        {port or '-'} {v['Browser'] if v else 'down'}")
 
 
 def cmd_stop(args):
@@ -260,14 +374,7 @@ def cmd_stop(args):
     state = load_state(dest)
     if not state:
         sys.exit(f"not started ({dest})")
-    for k in ("chrome", "clipbridge", "xephyr"):  # Chrome first so it saves its profile
-        if alive(state[k]):
-            os.killpg(state[k], signal.SIGTERM)
-            for _ in range(50):
-                if not alive(state[k]):
-                    break
-                time.sleep(0.1)
-    os.remove(os.path.join(dest, STATE_FILE))
+    stop_recorded(dest, state)
     print("stopped")
 
 
@@ -282,8 +389,11 @@ def clip_get(display):
 
 def clip_put(display, data, selections):
     for sel in selections:
-        subprocess.run(["xclip", "-i", "-selection", sel], input=data,
-                       env={**os.environ, "DISPLAY": display}, timeout=3)
+        try:
+            subprocess.run(["xclip", "-i", "-selection", sel], input=data,
+                           env={**os.environ, "DISPLAY": display}, timeout=3)
+        except subprocess.TimeoutExpired:
+            pass  # one missed copy must not end the bridge; the next poll retries
 
 
 def cmd_clipbridge(args):
@@ -321,7 +431,7 @@ def main():
     s.add_argument("--fresh", action="store_true", help="empty profile: in the nested window, install Claude in Chrome from the Web Store and sign it in")
     s.add_argument("--refresh", action="store_true", help="delete the copy (and logins made in it) and copy again")
     s.add_argument("--size", default="1500x950")
-    s.add_argument("--port", type=int, help="CDP port (default 9300 + display number)")
+    s.add_argument("--port", type=int, help="fixed CDP port (default: a free port Chrome picks; `start` prints it)")
     s.add_argument("urls", nargs="*")
     s.set_defaults(fn=cmd_start)
     sub.add_parser("status").set_defaults(fn=cmd_status)

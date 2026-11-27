@@ -54,6 +54,7 @@ DISPLAY=:<n> import -window root -resize 60% shot.png   # look at it
 | Let the user type passwords; the clipboard bridge carries their paste both ways | Never ask for credentials in chat |
 | Re-copy only with `start --refresh` | It deletes logins made inside the nested browser |
 | Stop with `stop` (process groups it started) | Never `pkill chrome` - that kills the user's browser |
+| Take the CDP port from `start` or `status`, every time | Chrome picks a free port per start. A guessed or remembered port may belong to another browser, and `cdp_eval.py` would run there with its cookies |
 
 ## Driving it
 
@@ -77,5 +78,9 @@ DISPLAY=:<n> import -window root -resize 60% shot.png   # look at it
   a password the user copies sits in the nested clipboard where the agent
   can read it, and a copy inside the nested window replaces the user's
   clipboard. The CDP port has no authentication from other local processes.
+- **Logins missing after the first copy.** The profile is copied while the
+  real Chrome may be writing it (`start` warns when it is running). If the
+  nested browser comes up logged out, close the real Chrome and run
+  `start --refresh`.
 - **Typing lost right after launch.** Wait for the page to load and click
   into the field again before concluding paste is broken.
