@@ -123,7 +123,14 @@ class Tmux:
         The buffer name is unique per call: two scripts pasting at once must not swap texts."""
         buf = f"claude-bgtasks-{os.getpid()}-{secrets.token_hex(4)}"
         self.run("load-buffer", "-b", buf, "-", stdin=text)
-        self.run("paste-buffer", "-p", "-d", "-b", buf, "-t", target)
+        try:
+            self.run("paste-buffer", "-p", "-d", "-b", buf, "-t", target)
+        except RuntimeError:
+            try:  # do not leave the message behind in a named buffer on the tmux server
+                self.run("delete-buffer", "-b", buf)
+            except RuntimeError:
+                pass
+            raise
 
 
 def plain(screen: str) -> str:
@@ -388,8 +395,9 @@ FOOTER_FOCUSED = "the task footer has focus (someone pressed Down): Enter would 
 def footer_focused(screen: str) -> bool:
     """Down from an empty input box moves focus to the task footer, which then reads
     "enter to view tasks". Text can still land in the box, but Enter opens the
-    Background dialog instead of submitting."""
-    return footer_has(screen, "enter to view tasks")
+    Background dialog instead of submitting. Matches a footer cut short by a narrow
+    pane ("enter to vie…") too; cut shorter than that, it cannot be told apart."""
+    return footer_has(screen, "enter to v")
 
 
 def why_not_send(in_mode: bool, screen: str, allow_working: bool = False) -> str | None:

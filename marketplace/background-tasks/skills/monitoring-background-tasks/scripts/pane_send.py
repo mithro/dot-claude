@@ -113,12 +113,12 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
         clock.sleep(10)
     working = panelib.is_working(screen)
 
-    tm.paste(pane, text)
     try:
+        tm.paste(pane, text)
         return _after_paste(a, tm, clock, pane, text, working)
-    except RuntimeError as e:
-        print(f"ERROR after the message was typed into {a.target}: {e}\nThe text may still be in its input box, "
-              "unsubmitted, or Enter may already have been sent. Look at the pane.", file=sys.stderr)
+    except Exception as e:  # whatever went wrong, the caller must learn that text may be in the box
+        print(f"ERROR while or after the message was typed into {a.target}: {e!r}\nThe text may be in its input "
+              "box, unsubmitted, or Enter may already have been sent. Look at the pane.", file=sys.stderr)
         return 1
 
 

@@ -770,4 +770,61 @@ with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(__file__)))
     check("ui: the per-pane snapshot directory is private (it holds full command lines)",
           [oct(os.stat(d).st_mode & 0o777) for d in pane_dirs], ["0o700"])
 
+
+# ---------------------------------------------------------------- fourth review: one Up, never two
+class TypesAfterDown(FakePane):
+    """The person starts typing right after Down, and Up's change of focus is drawn one
+    capture late. A second Up would land in the focused input box and recall history."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.lag = None
+
+    def key(self, pane, key):
+        if key == "Up":
+            self.keys.append(key)
+            if not self.focus or self.lag is not None:
+                self.damage.append("Up sent into the input box: recalls the previous message over the person's text")
+            else:
+                self.lag = 1
+            return
+        super().key(pane, key)
+        if key == "Down":
+            self.box = "typing now"
+
+    def look(self, pane):
+        out = super().look(pane)
+        if self.lag is not None:
+            self.lag -= 1
+            if self.lag < 0:
+                self.focus, self.lag = False, None
+        return out
+
+
+p = TypesAfterDown(rows=TWO)
+check("ui: the person typed after Down and the redraw lags: exactly one Up", (ui(p)[0], p.keys, p.damage, p.box), (3, ["Down", "Up"], [], "typing now"))
+
+
+check("footer focus: seen in a footer cut short by a narrow pane",
+      (panelib.footer_focused(screen(f"{R}❯\xa0", foot=("  ⏵⏵ auto mode on · 2 shells · enter to vie…",))),
+       panelib.why_not_send(False, screen(f"{R}❯\xa0", foot=("  ⏵⏵ auto mode on · 2 shells · enter to vie…",))) is None), (True, False))
+check("footer focus: not read from the transcript", panelib.footer_focused(screen(f"{R}❯\xa0", above="  enter to view tasks")), False)
+
+
+class BrokenCapture(FakePane):
+    """Every look after the paste fails in a way that is not a tmux error."""
+
+    def look(self, pane):
+        if self.pastes:
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        return super().look(pane)
+
+
+p = BrokenCapture()
+code, out = send(p, "--text", MSG)
+check("send: any failure after the paste says the text was typed", (code, "was typed" in out, p.keys), (1, True, []))
+p = BrokenCapture()
+code, out = compact(p)
+check("compact: any failure after the paste says the command was typed", (code, "was typed" in out, p.keys), (1, True, []))
+
 print(f"\nall {N_CHECKS} checks passed")

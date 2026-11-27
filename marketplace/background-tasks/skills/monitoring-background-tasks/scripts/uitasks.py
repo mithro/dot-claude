@@ -226,13 +226,21 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
                 break
         return wait_for(panelib.has_input_box, "closed, input box back") is not None
 
+    up_sent = False
+
     def unfocus() -> None:
-        """Hand focus back from the task footer to the input box: one Up, and only while
-        a fresh capture shows the footer focused under a live input box. (Up in an input
-        box that already has focus would recall the previous message.)"""
+        """Hand focus back from the task footer to the input box: Up, only while a fresh
+        capture shows the footer focused under a live input box, and AT MOST ONCE per
+        run. Up in an input box that already has focus recalls the previous message
+        (over whatever the person typed), and a capture taken straight after an Up can
+        still show the frame from before it was drawn."""
+        nonlocal up_sent
+        if up_sent:
+            return
         in_mode, s = tm.look(pane)
         if in_mode or not panelib.has_input_box(s) or not panelib.footer_focused(s):
             return
+        up_sent = True
         tm.key(pane, "Up")
         wait_for(lambda n: not panelib.footer_focused(n), "focus back on the input box")
 
@@ -245,7 +253,7 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             problems.append("Down did not focus the task footer; nothing else was sent")
             return
         if panelib.input_box(s):
-            tm.key(pane, "Up")
+            unfocus()
             problems.append("the person started typing; returned focus with Up and stopped")
             return
         tm.key(pane, "Enter")

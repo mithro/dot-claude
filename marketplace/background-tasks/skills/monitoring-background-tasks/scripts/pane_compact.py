@@ -146,12 +146,12 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             if elapsed > a.timeout:
                 return done(5, f"FAILED: started but not finished within {a.timeout} s", screen)
 
-    tm.paste(pane, cmd)
     try:
+        tm.paste(pane, cmd)
         return after_paste()
-    except RuntimeError as e:
-        return done(1, f"ERROR after the command was typed: {e}. It may still be in the input box, unsubmitted, "
-                       "or Enter may already have been sent. Look at the pane.")
+    except Exception as e:  # whatever went wrong, the caller must learn that text may be in the box
+        return done(1, f"ERROR while or after the command was typed: {e!r}. It may be in the input box, "
+                       "unsubmitted, or Enter may already have been sent. Look at the pane.")
 
 
 def main() -> None:
