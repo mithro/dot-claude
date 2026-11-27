@@ -3,9 +3,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Claude Code status line: user@host:cwd, then the logged-in claude.ai account.
+"""Claude Code status line: the logged-in claude.ai account, then user@host:cwd.
 
-Prints e.g. `tim@x1c-work:/home/tim/local me@mith.ro`. The working directory
+Prints e.g. `(me@mith.ro) tim@x1c-work:/home/tim/local`. The working directory
 comes from the session JSON on stdin (workspace.current_dir, then cwd).
 
 Claude Code pipes session JSON to a status line command on stdin, but that
@@ -48,7 +48,7 @@ def colour_for(email: str) -> int:
 
 
 def coloured(email: str) -> str:
-    return f"\033[38;5;{colour_for(email)}m{email}\033[0m"
+    return f"\033[38;5;{colour_for(email)}m({email})\033[0m"
 
 
 def config_file() -> pathlib.Path:
@@ -90,16 +90,16 @@ def account_part() -> str:
         account = json.loads(path.read_text()).get("oauthAccount") or {}
     except (OSError, json.JSONDecodeError) as e:
         # Visible in the status line rather than a silent blank.
-        return f"account unknown ({path}: {e.__class__.__name__})"
+        return f"(account unknown: {path}: {e.__class__.__name__})"
 
     email = account.get("emailAddress")
-    return coloured(email) if email else "not logged in to claude.ai"
+    return coloured(email) if email else "(not logged in to claude.ai)"
 
 
 def main() -> int:
     # Always read stdin to the end so Claude Code never blocks writing to us.
     cwd = session_cwd(sys.stdin.read())
-    print(f"{prompt_part(cwd)} {account_part()}")
+    print(f"{account_part()} {prompt_part(cwd)}")
     return 0
 
 
