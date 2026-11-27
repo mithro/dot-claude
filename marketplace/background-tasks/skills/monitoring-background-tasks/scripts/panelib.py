@@ -312,8 +312,13 @@ def has_input_box(screen: str) -> bool:
     return input_box(screen) is not None
 
 
-PANEL_HEAD = re.compile(r"\s*[●◯○◉⏺]\s+main\s*")  # first row of the sub-agent panel
-PANEL_ROW = re.compile(r"\s*[●◯○◉⏺]\s+\S")           # every row under it: "◯ <type>  <description>"
+# The sub-agent panel under the footer, as Claude Code 2.1.332 draws it:
+#     ● main                      head; "● main  ↑ 2 more" when scrolled
+#     ◯ general-purpose  <description> · since 10:26 PM
+#       └ ◯ Explore  <description>           a nested sub-agent, behind a tree connector
+#     ↓ 1 more                               when more than five rows
+PANEL_HEAD = re.compile(r"\s*[●◯○◉⏺]\s+main(?:\s+.*)?")
+PANEL_ROW = re.compile(r"\s*(?:(?:[├└│]\s*)*[●◯○◉⏺]\s+\S|[↑↓]\s+\d+\s+more\b)")
 
 
 def _below_box(screen: str) -> tuple[list[str], list[str]]:
@@ -322,13 +327,17 @@ def _below_box(screen: str) -> tuple[list[str], list[str]]:
     lines = plain(screen).splitlines()
     span = _box(lines)
     below = [l for l in lines[span[2] + 1:] if l.strip()] if span else []
-    for i, l in enumerate(below):
-        # The panel is the LAST thing on screen: its head, then only agent rows. A custom
-        # status line that happens to read "● main" sits above the mode line, which is
-        # not an agent row, so it is not taken for the head.
-        if PANEL_HEAD.fullmatch(l) and all(PANEL_ROW.match(r) for r in below[i + 1:]):
-            return below[:i], below[i + 1:]
-    return below, []
+    heads = [i for i, l in enumerate(below) if PANEL_HEAD.fullmatch(l)]
+    if not heads:
+        return below, []
+    # The panel is the last thing on screen, so its head is the LAST line that looks
+    # like one. Lines after the head that look like panel rows are the panel; any other
+    # line after it stays a footer line. That keeps both mistakes safe: a custom status
+    # line reading "● main" above the mode line does not hide the mode line, and a panel
+    # line this script has never seen does not turn the agent rows back into footer text.
+    i = heads[-1]
+    after = below[i + 1:]
+    return below[:i] + [l for l in after if not PANEL_ROW.match(l)], [l for l in after if PANEL_ROW.match(l)]
 
 
 def footer_lines(screen: str) -> list[str]:
@@ -360,6 +369,13 @@ def status_tail(screen: str, n: int = 8) -> list[str]:
 SPINNER_BUSY = re.compile(r"^\S \S+(?: \S+){0,3}… \(\d+[hms]\b")
 
 
+def _footer_item(screen: str, prefix: str) -> bool:
+    """One of the footer's "·"-separated items starts with `prefix`. The UI writes its
+    hints as whole items ("… · esc to interrupt · ↓ to manage"); the status line above
+    is the person's own text and may contain the same words mid-sentence."""
+    return any(item.strip().startswith(prefix) for l in footer_lines(screen) for item in l.split("·"))
+
+
 def footer_has(screen: str, phrase: str) -> bool:
     """`phrase` is in the footer below the input box. Never search the whole screen for
     a footer phrase: the transcript quotes them ("↓ to manage" follows every backgrounded
@@ -377,8 +393,7 @@ def is_working(screen: str) -> bool:
     Without an input box (a dialog, or a bare footer string): the last lines of the screen."""
     if not has_input_box(screen):
         return any("esc to int" in l for l in status_tail(screen))
-    return (any("esc to int" in l for l in footer_lines(screen))
-            or any(SPINNER_BUSY.match(l) for l in above_box(screen)))
+    return _footer_item(screen, "esc to int") or any(SPINNER_BUSY.match(l) for l in above_box(screen))
 
 
 def agent_panel(screen: str) -> list[str]:
@@ -412,7 +427,7 @@ def footer_focused(screen: str) -> bool:
     "enter to view tasks". Text can still land in the box, but Enter opens the
     Background dialog instead of submitting. Matches a footer cut short by a narrow
     pane ("enter to vie…") too; cut shorter than that, it cannot be told apart."""
-    return footer_has(screen, "enter to v")
+    return _footer_item(screen, "enter to v")
 
 
 def why_not_send(in_mode: bool, screen: str, allow_working: bool = False) -> str | None:

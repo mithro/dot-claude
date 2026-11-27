@@ -30,7 +30,8 @@ control characters (they would arrive as keys) or longer than 400 characters (Cl
 Code shows a long paste as a "[Pasted text]" placeholder that cannot be checked) is
 refused before anything is typed: write a file the other session can read and send a
 one-line pointer to it. So is a message starting with "!" or "#", which would switch
-the input box to another mode.
+the input box to another mode. A message starting with "/" is NOT refused: it runs as a
+slash command in that session (this is how `/exit` is sent), so be sure you mean it.
 
 --no-enter fills the input box and stops, for when the person wants to review and press
 Enter themselves.

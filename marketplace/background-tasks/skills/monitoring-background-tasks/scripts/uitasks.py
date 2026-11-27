@@ -68,7 +68,7 @@ def parse_list(screen: str) -> dict:
     nums = re.findall(r"(\d+) [a-z]", header)
     out["header"] = header
     out["count"] = int(m.group(1)) if m else (sum(int(n) for n in nums) if nums else None)
-    sec, seen_header, untitled = None, False, False
+    sec, active, seen_header, untitled = None, None, False, False
     for l in body:
         t = l.strip()
         if not seen_header:
@@ -87,9 +87,13 @@ def parse_list(screen: str) -> dict:
         if sec is None:
             if not BULLET.match(t):
                 continue
-            sec, untitled = "Tasks", True
+            # No section titles (2.1.332). The rows are all shells only if the header
+            # says so; otherwise nothing tells a shell row from another kind, and no
+            # row may be opened.
+            sec = active = "Tasks" if re.fullmatch(r"\d+ shells?", header) else "Tasks (not only shells)"
+            untitled = True
             out["sections"].setdefault(sec, [])
-        elif untitled and sec == "Tasks" and not BULLET.match(t):
+        elif untitled and sec == active and not BULLET.match(t):
             # In the untitled layout every active row starts with a status dot, so a
             # line without one is the previous row's command wrapping on. (Only here:
             # under "Earlier in this session" the last row of `rows` is a different row.)

@@ -900,4 +900,50 @@ check("agent panel: the real panel is still found", (panelib.agent_panel(p.rende
 check("footer count: with an input box and nothing under it, the transcript is not read",
       panelib.footer_task_count("\n".join(["  told it: 7 background tasks · ↓ to manage", RULE, f"{R}❯\xa0", RULE])), None)
 
+
+# ---------------------------------------------------------------- seventh review: the panel's other lines
+# From the 2.1.332 bundle: more than five agents end in a "↓ N more" row, a nested
+# sub-agent's row starts with a tree connector, a scrolled panel's head carries "↑ N more".
+MODE = "  ⏵⏵ auto mode on · 2 shells · ↓ to manage"
+SIX = ["  ● main"] + [f"  ◯ general-purpose  task {i} · since 10:2{i} PM" for i in range(5)] + ["  ↓ 1 more"]
+for name, panel, n in (
+        ("six agents, '↓ 1 more' row", SIX, 6),
+        ("a nested sub-agent, '└ ◯' row", ["  ● main", "  ◯ general-purpose  outer · since 10:26 PM", "    └ ◯ Explore  inner · since 10:27 PM"], 2),
+        ("a scrolled panel, head '● main  ↑ 2 more'", ["  ● main  ↑ 2 more", "  ◯ general-purpose  third · since 10:26 PM"], 1),
+        ("a line this script has never seen", ["  ● main", "  ◯ general-purpose  one · since 10:26 PM", "  something new"], 1)):
+    s = screen(f"{R}❯\xa0", foot=("  user@host:/dir", MODE, *panel))
+    check(f"agent panel: {name}: agents seen, agent rows not footer",
+          (len([r for r in panelib.agent_panel(s) if "more" not in r.split()[-1:]]) >= 1, panelib.background_agents(s),
+           any("since" in l for l in panelib.footer_lines(s)), panelib.footer_has(s, "to manage")), (True, True, False, True))
+loud = screen(f"{R}❯\xa0", foot=("  user@host:/dir", MODE, "  ● main",
+                                   *[f"  ◯ general-purpose  enter to view the logs {i} · esc to interrupt it" for i in range(5)], "  ↓ 1 more"))
+check("agent panel: six agents whose descriptions quote footer phrases", (panelib.footer_focused(loud), panelib.is_working(loud)), (False, False))
+
+
+class SixAgents(FakePane):
+    def render(self):
+        out = super().render()
+        return out + "\n  ↓ 1 more" if (self.agents and not self.dialog and not self.prompt) else out
+
+
+p = SixAgents()
+p.agents = [f"task {i} · since 10:2{i} PM" for i in range(5)]
+check("compact: six sub-agents running ('↓ 1 more'): nothing typed", (compact(p)[0], p.pastes), (2, []))
+
+# The status line above the mode line is the person's own text; a footer phrase counts
+# only as a whole "·"-separated item, the way the UI writes it.
+for name, status, mode in (("'enter to view' in a status line", "  Press enter to view logs", FOOT),
+                           ("'…center to view' in a status line", "  ~/src/center to view  main", FOOT),
+                           ("'esc to interrupt' in a status line", "  job: esc to interrupt", FOOT)):
+    s = screen(f"{R}❯\xa0", foot=(status, mode))
+    check(f"footer: {name} is not UI state", (panelib.footer_focused(s), panelib.is_working(s)), (False, False))
+s = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · enter to view tasks"))
+check("footer: the real items are still seen", (panelib.footer_focused(s), panelib.is_working(s)), (True, True))
+
+MIXED = "\n".join(["● earlier reply", DRULE, "  Background", "  1 shell, 1 monitor", "", "  ❯ ● sleep 800   running", "    ● watch the log   running", "",
+                   "  ↑/↓ to navigate · x to stop · Enter to view · Esc to close"])
+got = uitasks.parse_list(MIXED)
+check("list: an untitled list that is not only shells has no openable rows",
+      (len(got["rows"]), [r["section"] in uitasks.OPENABLE for r in got["rows"]]), (2, [False, False]))
+
 print(f"\nall {N_CHECKS} checks passed")
