@@ -19,8 +19,10 @@ fixture, then fix the parser.
 import contextlib
 import io
 import os
+import pathlib
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bgcheck  # noqa: E402
@@ -945,5 +947,45 @@ MIXED = "\n".join(["● earlier reply", DRULE, "  Background", "  1 shell, 1 mon
 got = uitasks.parse_list(MIXED)
 check("list: an untitled list that is not only shells has no openable rows",
       (len(got["rows"]), [r["section"] in uitasks.OPENABLE for r in got["rows"]]), (2, [False, False]))
+
+
+# ---------------------------------------------------------------- eighth review: the parenthesised footer hint
+# The 2.1.332 bundle has a second footer form behind a server-side flag: the hint in
+# parentheses straight after the task count, "4 shells (enter to view tasks)".
+PAREN_FOCUS = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on · 4 shells (enter to view tasks)"))
+PAREN_IDLE = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on · 4 shells (↓ to manage)"))
+PAREN_BUSY = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on · 4 shells (↓ to manage) (esc to interrupt)"))
+check("footer: the parenthesised hint form is read",
+      (panelib.footer_focused(PAREN_FOCUS), panelib.why_not_send(False, PAREN_FOCUS) is None, panelib.footer_focused(PAREN_IDLE),
+       panelib.footer_has(PAREN_IDLE, "to manage"), panelib.footer_task_count(PAREN_IDLE), panelib.is_working(PAREN_BUSY)),
+      (True, False, False, True, 4, True))
+
+
+class ParenFooter(FakePane):
+    def render(self):
+        return super().render().replace(" · enter to view tasks", " (enter to view tasks)").replace(" · ↓ to manage", " (↓ to manage)")
+
+
+p = ParenFooter(rows=TWO)
+p.focus = True
+check("send: parenthesised footer with focus: nothing typed", (send(p, "--text", MSG)[0], p.pastes, p.keys), (2, [], []))
+p = ParenFooter(rows=TWO)
+p.focus = True
+check("compact: parenthesised footer with focus: nothing typed", (compact(p)[0], p.pastes, p.keys), (2, [], []))
+p = ParenFooter(rows=TWO)
+check("ui: parenthesised footer: a normal run", (ui(p)[0], p.keys, p.damage),
+      (0, ["Down", "Enter", "Enter", "Left", "Down", "Enter", "Left", "Escape"], []))
+p = ParenFooter(rows=TWO)
+p.no_dialog = True
+check("ui: parenthesised footer, Enter opened nothing: focus handed back", (ui(p)[0], p.keys, p.focus), (3, ["Down", "Enter", "Up"], False))
+
+with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(__file__))) as state:
+    args = uitasks.parse(["--pane", "t:1", "--state-dir", state])
+    quiet(uitasks.run, args, FakePane(rows=TWO))
+    for f in pathlib.Path(state).glob("*/*.json"):
+        f.write_text("{ not json")
+    time.sleep(1.1)  # the snapshot name has one-second resolution
+    code, out = quiet(uitasks.run, args, FakePane(rows=TWO))
+    check("ui: an unreadable previous snapshot does not hide this run's result", (code, "self-check ok" in out, "not compared" in out), (0, True, True))
 
 print(f"\nall {N_CHECKS} checks passed")

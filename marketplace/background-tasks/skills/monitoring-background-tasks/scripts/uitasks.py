@@ -149,7 +149,11 @@ def report(snaps: pathlib.Path, stamp: str, snap: dict) -> None:
     if not prev:
         print("\n(first snapshot for this pane)")
         return
-    old = json.loads(prev[-1].read_text())
+    try:
+        old = json.loads(prev[-1].read_text())
+    except (OSError, ValueError) as e:
+        print(f"\n{prev[-1].name} could not be read ({e}): not compared.")
+        return
     if old.get("tmux_server") != snap.get("tmux_server"):
         # Pane ids start again from %0 when the tmux server restarts.
         print(f"\n{prev[-1].name} is from another tmux server, so this pane id may have been another session: not compared.")
@@ -265,7 +269,7 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             return
         if panelib.input_box(s):
             unfocus()
-            problems.append("the person started typing; returned focus with Up and stopped")
+            problems.append("the person started typing; stopped (focus handed back with Up if the footer still had it)")
             return
         tm.key(pane, "Enter")
         opened = True

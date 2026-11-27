@@ -98,7 +98,7 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             return why
         agents = panelib.background_agents(screen)
         if agents:
-            return "a sub-agent of that session is still running"
+            return "the session still lists a sub-agent (running, or idle or finished and not yet cleared)"
         if agents is None:
             return "the footer shows a task total that may include a sub-agent (pass --ignore-agents if you have checked)"
         return None

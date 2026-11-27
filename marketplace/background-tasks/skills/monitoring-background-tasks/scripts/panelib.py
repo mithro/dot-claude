@@ -370,10 +370,13 @@ SPINNER_BUSY = re.compile(r"^\S \S+(?: \S+){0,3}… \(\d+[hms]\b")
 
 
 def _footer_item(screen: str, prefix: str) -> bool:
-    """One of the footer's "·"-separated items starts with `prefix`. The UI writes its
-    hints as whole items ("… · esc to interrupt · ↓ to manage"); the status line above
-    is the person's own text and may contain the same words mid-sentence."""
-    return any(item.strip().startswith(prefix) for l in footer_lines(screen) for item in l.split("·"))
+    """A footer hint starting with `prefix` is on screen. Claude Code 2.1.332 writes a
+    hint either as a whole "·"-separated item ("… · 4 shells · enter to view tasks") or,
+    behind a server-side flag, in parentheses after the item before it ("… · 4 shells
+    (enter to view tasks)"). The status line above the mode line is the person's own
+    text and may contain the same words mid-sentence, which is neither form."""
+    hint = re.compile(r"(?:^|[·(])\s*" + re.escape(prefix))
+    return any(hint.search(l.strip()) for l in footer_lines(screen))
 
 
 def footer_has(screen: str, phrase: str) -> bool:
