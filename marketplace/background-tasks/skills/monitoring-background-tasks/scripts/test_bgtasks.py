@@ -646,7 +646,14 @@ check("compact: the person's text drawn dim: Enter withheld", (compact(p)[0], p.
 SPIN = "✻ Thinking… (12s · esc to interrupt)"
 check("working: spinner above the box, footer cut before 'esc to int'",
       panelib.is_working(screen(f"{R}❯\xa0", above="✻ Thinking… (12s)", foot=("  ⏵⏵ auto mode on · 2 shells · esc t…",))), True)
-check("working: spinner above the box, no hint anywhere", panelib.is_working(screen(f"{R}❯\xa0", above="✽ Compacting conversation…")), True)
+check("working: a two-word spinner above the box, no hint in the footer",
+      panelib.is_working(screen(f"{R}❯\xa0", above="✽ Compacting conversation… (3s)")), True)
+check("working: the spinner glyph can be the reply bullet (seen live on 2.1.332)",
+      panelib.is_working(screen(f"{R}❯\xa0", above="● Forming… (59s · ↓ 6.3k tokens · thinking)")), True)
+check("working: minutes and seconds", panelib.is_working(screen(f"{R}❯\xa0", above="✻ Thinking… (1m 12s · esc to interrupt)")), True)
+check("idle: column-0 lines with an ellipsis but no elapsed time are not spinners",
+      [panelib.is_working(screen(f"{R}❯\xa0", above=l)) for l in ("⏺ Done… the files are written", "※ recap: … next: tests", "! ls…")],
+      [False, False, False])
 check("idle: a finished-turn line is not a spinner", panelib.is_working(screen(f"{R}❯\xa0", above="✻ Cooked for 2m 3s")), False)
 check("idle: a reply or tool line with an ellipsis is not a spinner",
       (panelib.is_working(screen(f"{R}❯\xa0", above="● Thinking… about it")),
@@ -656,7 +663,8 @@ check("idle: an indented spinner-like line is transcript", panelib.is_working(sc
 # uitasks: Escape only while a dialog is open, also on the way out after a failure.
 p = FakePane(rows=TWO)
 p.no_dialog = True
-check("ui: Enter opened nothing: no Escape on the way out", (ui(p)[0], p.keys, p.damage), (3, ["Down", "Enter"], []))
+check("ui: Enter opened nothing: no Escape on the way out, and focus is handed back with Up",
+      (ui(p)[0], p.keys, p.damage, p.focus), (3, ["Down", "Enter", "Up"], [], False))
 
 # A live input box means no dialog, whatever the footer says.
 check("dialog: 'Esc to close' in the footer under a live input box is not a dialog",
@@ -705,5 +713,61 @@ class EnterOpensSomething(FakePane):
 p = EnterOpensSomething()
 code, out = send(p, "--text", MSG)
 check("send: no input box after Enter is not 'sent'", (code, p.submitted, f"sent {len(MSG)} chars" in out), (3, [], False))
+
+
+# ---------------------------------------------------------------- third review: remaining items
+class EnterRewritesBox(FakePane):
+    """Enter accepts a completion instead of submitting: the box changes, nothing is sent."""
+
+    def key(self, pane, key):
+        self.keys.append(key)
+        if key == "Enter":
+            self.box += "/README.md "
+
+
+p = EnterRewritesBox()
+code, out = send(p, "--text", "reply in @marketplace")
+check("send: Enter changed the box without submitting: not 'sent'", (code, p.submitted, "NOT CONFIRMED" in out), (3, [], True))
+
+wrapped = "\n".join(["❯ /compact keep the list of", "  Compacted results and the handoff", RULE, f"{R}❯\xa0", RULE, FOOT])
+check("compact marks: the echoed --keep text wrapping onto a line that starts 'Compacted' is not a result",
+      pane_compact.marks(wrapped)[2], False)
+
+for name, bad in (("zero-width space", "a\u200bb"), ("right-to-left override", "a\u202eb")):
+    p = FakePane()
+    check(f"send: {name} in the message: refused, nothing typed", (send(p, "--text", bad)[0], p.pastes), (1, []))
+
+
+def exit_code(fn, argv):
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            fn(argv)
+    except SystemExit as e:
+        return e.code
+    return None
+
+
+check("bad arguments exit 1, never 2 (2 means 'refused, nothing typed')",
+      (exit_code(pane_send.parse, ["t:1"]), exit_code(pane_send.parse, ["t:1", "--read", "--history", "-5"]),
+       exit_code(pane_compact.parse, []), exit_code(uitasks.parse, ["--no-such-option"])), (1, 1, 1, 1))
+
+p = FakePane()
+p.fail_on_key = "Enter"
+code, out = send(p, "--text", MSG)
+check("send: tmux fails after the paste: says the text was typed", (code, "was typed" in out), (1, True))
+p = FakePane()
+p.fail_on_key = "Enter"
+code, out = compact(p)
+check("compact: tmux fails after the paste: says the command was typed", (code, "was typed" in out), (1, True))
+
+with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(__file__))) as state:
+    old_umask = os.umask(0o022)
+    try:
+        quiet(uitasks.run, uitasks.parse(["--pane", "t:1", "--state-dir", state]), FakePane(rows=TWO))
+    finally:
+        os.umask(old_umask)
+    pane_dirs = [os.path.join(state, d) for d in os.listdir(state)]
+    check("ui: the per-pane snapshot directory is private (it holds full command lines)",
+          [oct(os.stat(d).st_mode & 0o777) for d in pane_dirs], ["0o700"])
 
 print(f"\nall {N_CHECKS} checks passed")

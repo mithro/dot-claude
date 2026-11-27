@@ -22,12 +22,15 @@ How a screen is read (verified on Claude Code 2.1.332):
 """
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import secrets
 import shlex
 import subprocess
+import sys
 import time
+import unicodedata
 
 ANSI = re.compile(r"\x1b\[[0-9;:]*m")
 OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")  # hyperlinks, titles (BEL or ST terminated)
@@ -36,6 +39,15 @@ PROMPT = "❯"
 RULE = "─"
 PASTED = re.compile(r"\[Pasted text #\d+[^\]]*\]")  # what the box shows for a long paste
 MAX_MESSAGE = 400  # characters; see clean_message
+
+
+class ArgParser(argparse.ArgumentParser):
+    """Bad arguments exit 1. argparse's own exit status is 2, which these scripts use
+    for "refused, nothing was typed"."""
+
+    def error(self, message: str):
+        self.print_usage(sys.stderr)
+        self.exit(1, f"{self.prog}: error: {message}\n")
 
 
 class Clock:
@@ -131,15 +143,17 @@ def clean_message(text: str) -> str:
       * Control characters. tmux writes a buffer's bytes raw between the bracketed-paste
         markers, so an embedded ESC [ 201 ~ would end the paste early and the bytes after
         it (an Escape, a Ctrl-C) would arrive as keys.
+      * Invisible format characters (zero-width space, direction overrides): the input
+        box may not show them, so the check before Enter could not match.
       * More than MAX_MESSAGE characters. Claude Code shows a long paste as a
         "[Pasted text #N]" placeholder, and then nothing can check that the box holds
         this message and only this message.
 
     Tabs and newlines become single spaces (a newline would submit early)."""
     text = re.sub(r"\s+", " ", text).strip()
-    bad = sorted({c for c in text if ord(c) < 0x20 or 0x7f <= ord(c) <= 0x9f})
+    bad = sorted({c for c in text if unicodedata.category(c) in ("Cc", "Cf")})
     if bad:
-        raise ValueError("the message contains control characters ("
+        raise ValueError("the message contains control or invisible format characters ("
                          + ", ".join(f"U+{ord(c):04X}" for c in bad) + "); remove them")
     if len(text) > MAX_MESSAGE:
         raise ValueError(f"the message is {len(text)} characters (limit {MAX_MESSAGE}): write it to a file the "
@@ -310,11 +324,14 @@ def status_tail(screen: str, n: int = 8) -> list[str]:
     return [l for l in plain(screen).splitlines() if l.strip()][-n:]
 
 
-# A running turn's spinner line, at column 0: "✻ Thinking… (12s · esc to interrupt)",
-# "✽ Compacting conversation…". The glyph is a symbol, never a letter, and never the
-# marks that start a reply (●), a submitted message (❯) or a tool result (⎿). A finished
-# turn leaves "✻ Cooked for 2m 3s", with no ellipsis.
-SPINNER_BUSY = re.compile(r"^[^\s\w●❯⎿] \S.*…")
+# A running turn's spinner line, at column 0: one glyph, a few words ending in an
+# ellipsis, then a parenthesis that starts with the elapsed time:
+#     ✻ Thinking… (12s · esc to interrupt)
+#     ● Forming… (59s · ↓ 6.3k tokens · thinking)      <- the glyph can be the reply bullet
+# The elapsed time is what tells it from a reply or a recap that happens to contain an
+# ellipsis ("● Done… the files are written"). A finished turn leaves "✻ Cooked for 2m 3s".
+# In its first second a spinner may have no time yet; the footer's "esc to int" covers that.
+SPINNER_BUSY = re.compile(r"^\S \S+(?: \S+){0,3}… \(\d+[hms]\b")
 
 
 def footer_has(screen: str, phrase: str) -> bool:

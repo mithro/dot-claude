@@ -24,10 +24,11 @@ Safety, so it does not disturb the person using the pane:
   * Never sends "x", which stops the selected task.
   * Opens the detail view of shell rows only. What Enter does on an agent, scheduled
     or monitor row has not been captured, so those rows are listed but not opened.
-  * If anything fails after the dialog was opened, it still closes the dialog.
+  * If anything fails after the dialog was opened, it still closes the dialog, and if
+    focus is left on the task footer it hands it back with one Up.
   * Afterwards it checks the dialog is closed and the input box is unchanged.
 
-Exit codes: 0 ok, 1 error (tmux failed), 2 skipped (person typing, copy mode, or an
+Exit codes: 0 ok, 1 error (bad arguments, tmux failed), 2 skipped (person typing, copy mode, or an
 unexpected screen; nothing was sent), 3 a self-check failed.
 After every run, compare the saved raw screens by eye with the JSON.
 """
@@ -118,7 +119,7 @@ def parse_detail(screen: str) -> dict:
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = panelib.ArgParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pane", default=os.environ.get("TMUX_PANE"), help="tmux target (default: $TMUX_PANE, this session's own pane)")
     ap.add_argument("-L", "--socket", help="tmux socket name, when --pane is on another tmux server")
     ap.add_argument("--state-dir", default=os.path.join(
@@ -165,7 +166,10 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
     snaps = pathlib.Path(a.state_dir) / (re.sub(r"[^A-Za-z0-9]+", "_", f"{a.socket or ''}_{pane}").strip("_"))
     stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
     raw = snaps / f"{stamp}-screens"
-    raw.mkdir(parents=True, mode=0o700)  # the screens hold whatever the transcript showed
+    raw.mkdir(parents=True)
+    # The snapshots hold every task's full command line and whatever the transcript
+    # showed. mkdir's mode only applies to the last directory it creates, so set it here.
+    snaps.chmod(0o700)
     n_raw = 0
 
     def log(label: str, screen: str) -> None:
@@ -221,6 +225,16 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
             if wait_for(lambda n: not panelib.dialog_open(n), "after Escape", 5.0):
                 break
         return wait_for(panelib.has_input_box, "closed, input box back") is not None
+
+    def unfocus() -> None:
+        """Hand focus back from the task footer to the input box: one Up, and only while
+        a fresh capture shows the footer focused under a live input box. (Up in an input
+        box that already has focus would recall the previous message.)"""
+        in_mode, s = tm.look(pane)
+        if in_mode or not panelib.has_input_box(s) or not panelib.footer_focused(s):
+            return
+        tm.key(pane, "Up")
+        wait_for(lambda n: not panelib.footer_focused(n), "focus back on the input box")
 
     def drive() -> None:
         nonlocal opened
@@ -307,6 +321,7 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
     finally:
         if opened:
             closed = close()
+        unfocus()
 
     # ---- 4. self-checks
     in_mode, end = tm.look(pane)
@@ -327,6 +342,8 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
         problems.append("a dialog is still open at the end: LOOK AT THE PANE NOW")
     if after != before:
         problems.append(f"input box changed: {before!r} -> {after!r}")
+    if panelib.footer_focused(end):
+        problems.append("focus is still on the task footer: press Up in the pane before typing or sending anything")
     snap["self_check_problems"] = problems
     report(snaps, stamp, snap)
     if problems:

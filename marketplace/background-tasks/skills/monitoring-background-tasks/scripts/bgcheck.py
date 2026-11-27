@@ -205,11 +205,7 @@ def main() -> None:
                     pass
         paths = sorted(mtimes, key=mtimes.get, reverse=True)
         for p in paths:
-            try:
-                lines = last_lines(p)
-            except OSError as e:
-                print(f"  {p}: {e}")
-                continue
+            lines = last_lines(p)
             print(f"  {(now - mtimes[p]) / 60:8.1f} min ago  {p}\n      last: {(lines[-1] if lines else '(empty)')[:200]}")
         if not paths:
             print("  no file matched")

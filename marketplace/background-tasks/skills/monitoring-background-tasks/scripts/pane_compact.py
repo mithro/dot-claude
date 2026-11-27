@@ -29,8 +29,9 @@ not block it. A running sub-agent does.)
 
 Exit codes:
   0  compaction verified finished
-  1  error: --keep has control characters or makes the command longer than 400
-     characters (nothing typed), or tmux or ssh failed
+  1  error: bad arguments, --keep has control characters or makes the command longer
+     than 400 characters (nothing typed), or tmux or ssh failed (the message says if
+     the command had already been typed)
   2  never safe to type within --wait-idle; nothing was typed
   3  the command was typed but Enter was withheld; it is still in the input box
   4  Enter was sent but compaction did not start
@@ -55,7 +56,9 @@ import panelib  # noqa: E402
 # only a result line BELOW the last echoed /compact counts.
 ECHO = re.compile(r"^❯\s+/compact\b")
 SPINNER = re.compile(r"^\S ?Compacting\b")
-DONE = re.compile(r"^\s*⎿?\s*(?:Compacted\b|Conversation compacted\b)")
+# The result mark ⎿ is required: without it, the echoed --keep text wrapping onto a line
+# that begins "Compacted ..." would read as a result.
+DONE = re.compile(r"^\s*⎿\s*(?:Compacted\b|Conversation compacted\b)")
 
 
 def marks(screen: str) -> tuple[list[str], bool, bool]:
@@ -71,7 +74,7 @@ def marks(screen: str) -> tuple[list[str], bool, bool]:
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = panelib.ArgParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("target")
     ap.add_argument("-L", "--socket")
     ap.add_argument("--host")
@@ -117,31 +120,38 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
         clock.sleep(5)
     before_echoes = marks(screen)[0]
 
-    tm.paste(pane, cmd)
-    ok, screen, reason = panelib.confirm_typed(tm, pane, cmd, clock)
-    if ok and panelib.is_working(screen):
-        ok, reason = False, "a turn started while the command was being typed"
-    if not ok:
-        return done(3, f"FAILED: {reason}. Enter was withheld; whatever is in the input box is still there, "
-                       "unsubmitted. Tell the person; do not clear it.", screen)
-    tm.key(pane, "Enter")
+    def after_paste() -> int:
+        ok, screen, reason = panelib.confirm_typed(tm, pane, cmd, clock)
+        if ok and panelib.is_working(screen):
+            ok, reason = False, "a turn started while the command was being typed"
+        if not ok:
+            return done(3, f"FAILED: {reason}. Enter was withheld; whatever is in the input box is still there, "
+                           "unsubmitted. Tell the person; do not clear it.", screen)
+        tm.key(pane, "Enter")
 
-    t0, started = clock.now(), False
-    while True:
-        clock.sleep(2)
-        in_mode, screen = tm.look(pane)
-        elapsed = clock.now() - t0
-        echoes, compacting, compacted = marks(screen)
-        box = panelib.input_box(panelib.plain(screen))
-        if not started and panelib.squash(cmd) not in panelib.squash(box or "") and (compacting or echoes != before_echoes):
-            started = True
-            print(f"compaction started after {elapsed:.0f} s", flush=True)
-        if started and compacted and not compacting and panelib.why_not_send(in_mode, screen) is None:
-            return done(0, f"ok: compacted in {elapsed:.0f} s")
-        if not started and elapsed > min(45, a.timeout):
-            return done(4, "FAILED: Enter was sent but compaction did not start (Enter not accepted, or /compact refused)", screen)
-        if elapsed > a.timeout:
-            return done(5, f"FAILED: started but not finished within {a.timeout} s", screen)
+        t0, started = clock.now(), False
+        while True:
+            clock.sleep(2)
+            in_mode, screen = tm.look(pane)
+            elapsed = clock.now() - t0
+            echoes, compacting, compacted = marks(screen)
+            box = panelib.input_box(panelib.plain(screen))
+            if not started and panelib.squash(cmd) not in panelib.squash(box or "") and (compacting or echoes != before_echoes):
+                started = True
+                print(f"compaction started after {elapsed:.0f} s", flush=True)
+            if started and compacted and not compacting and panelib.why_not_send(in_mode, screen) is None:
+                return done(0, f"ok: compacted in {elapsed:.0f} s")
+            if not started and elapsed > min(45, a.timeout):
+                return done(4, "FAILED: Enter was sent but compaction did not start (Enter not accepted, or /compact refused)", screen)
+            if elapsed > a.timeout:
+                return done(5, f"FAILED: started but not finished within {a.timeout} s", screen)
+
+    tm.paste(pane, cmd)
+    try:
+        return after_paste()
+    except RuntimeError as e:
+        return done(1, f"ERROR after the command was typed: {e}. It may still be in the input box, unsubmitted, "
+                       "or Enter may already have been sent. Look at the pane.")
 
 
 def main() -> None:

@@ -35,12 +35,14 @@ one-line pointer to it.
 Enter themselves.
 
 Exit codes:
-  0  sent and confirmed (or --read, or --no-enter filled the box)
+  0  sent and confirmed: after Enter the input box is on screen and empty again
+     (or --read, or --no-enter filled the box)
   1  error: bad arguments, empty or unsafe message (control characters, over 400
      characters), tmux or ssh failed. Nothing was typed unless the message says otherwise.
   2  refused: nothing was typed
-  3  Enter was sent but not confirmed: the box still holds the message, or no input
-     box is on screen any more. Look at the pane.
+  3  Enter was sent but not confirmed: the box is not empty (it still holds the
+     message, Enter changed it without submitting, or the person typed straight
+     after), or no input box is on screen any more. Look at the pane.
   4  the message was typed but Enter was withheld: the box holds text that is not
      (only) the message. Nothing was submitted; the text is still in the box.
 """
@@ -56,7 +58,7 @@ import panelib  # noqa: E402
 
 
 def parse(argv: list[str] | None = None) -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = panelib.ArgParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("target")
     ap.add_argument("-L", "--socket")
     ap.add_argument("--host")
@@ -71,6 +73,8 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     given = [n for n in ("read", "file", "text") if getattr(a, n) not in (None, False)]
     if len(given) != 1:
         ap.error("give exactly one of --read, --file FILE, --text TEXT")
+    if a.history < 0:
+        ap.error("--history must not be negative")
     return a
 
 
@@ -110,6 +114,15 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
     working = panelib.is_working(screen)
 
     tm.paste(pane, text)
+    try:
+        return _after_paste(a, tm, clock, pane, text, working)
+    except RuntimeError as e:
+        print(f"ERROR after the message was typed into {a.target}: {e}\nThe text may still be in its input box, "
+              "unsubmitted, or Enter may already have been sent. Look at the pane.", file=sys.stderr)
+        return 1
+
+
+def _after_paste(a: argparse.Namespace, tm, clock: panelib.Clock, pane: str, text: str, working: bool) -> int:
     ok, screen, reason = panelib.confirm_typed(tm, pane, text, clock)
     if not ok:
         print(f"NOT SENT: {reason}. Enter was withheld; whatever is in the input box of {a.target} is still "
@@ -125,17 +138,18 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
     while True:
         clock.sleep(0.5)
         _, screen = tm.look(pane)
-        left = panelib.input_box(panelib.plain(screen))
-        # Submitted = the input box is on screen and no longer holds the message. No
-        # input box at all means something else took the screen (a dialog, a
-        # permission prompt): that is not a confirmation.
-        if left is not None and panelib.squash(text) not in panelib.squash(left):
+        # Submitted = the input box is on screen and empty again (a grey suggestion counts
+        # as empty). A box that merely changed is not enough: Enter can accept a
+        # completion instead of submitting. No input box at all means something else
+        # took the screen (a dialog, a permission prompt).
+        if panelib.input_box(screen) == "":
             break
         if clock.now() >= end:
+            left = panelib.input_box(panelib.plain(screen))
             print("\n".join(l[:200] for l in panelib.status_tail(screen, 12)))
             print("\nNOT CONFIRMED: Enter was sent but "
                   + ("no input box is on screen (a dialog or permission prompt is open?)" if left is None
-                     else f"the input box still holds {left!r}") + ". Look at the pane.", file=sys.stderr)
+                     else f"the input box holds {left!r}") + ". Look at the pane.", file=sys.stderr)
             return 3
     print("\n".join(l[:200] for l in panelib.status_tail(screen, 12)))
     print(f"\nsent {len(text)} chars to {a.target} ({pane})" + (f" on {a.host}" if a.host else "")
