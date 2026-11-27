@@ -3,9 +3,9 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Claude Code status line: the logged-in claude.ai account, then user:cwd.
+"""Claude Code status line: the logged-in claude.ai account, then the cwd.
 
-Prints e.g. `(me@mith.ro) tim:/home/tim/local`. The working directory
+Prints e.g. `(me@mith.ro) /home/tim/local`. The working directory
 comes from the session JSON on stdin (workspace.current_dir, then cwd).
 
 Claude Code pipes session JSON to a status line command on stdin, but that
@@ -25,10 +25,9 @@ import hashlib
 import json
 import os
 import pathlib
-import pwd
 import sys
 
-# Shown in place of any part (account, user, directory) we cannot find.
+# Shown in place of any part (account, directory) we cannot find.
 UNKNOWN = "???"
 
 # xterm-256 colour numbers.
@@ -82,20 +81,12 @@ def session_cwd(session_json: str) -> str:
         return UNKNOWN
 
 
-def current_user() -> str:
-    """What `whoami` prints: the name of the effective uid, ignoring $USER."""
-    try:
-        return pwd.getpwuid(os.geteuid()).pw_name or UNKNOWN
-    except KeyError:  # uid with no passwd entry
-        return UNKNOWN
+def cwd_part(cwd: str) -> str:
+    """The directory, in the bold blue of the Debian bash prompt.
 
-
-def prompt_part(cwd: str) -> str:
-    """user:cwd, coloured like the Debian bash prompt.
-
-    No hostname: tmux's status bar already shows it.
+    No user@host: tmux's status bar already shows the host.
     """
-    return f"\033[01;32m{current_user()}\033[00m:\033[01;34m{cwd}\033[00m"
+    return f"\033[01;34m{cwd}\033[00m"
 
 
 def account_part() -> str:
@@ -111,7 +102,7 @@ def account_part() -> str:
 def main() -> int:
     # Always read stdin to the end so Claude Code never blocks writing to us.
     cwd = session_cwd(sys.stdin.read())
-    print(f"{account_part()} {prompt_part(cwd)}")
+    print(f"{account_part()} {cwd_part(cwd)}")
     return 0
 
 
