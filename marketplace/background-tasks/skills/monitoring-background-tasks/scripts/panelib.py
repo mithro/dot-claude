@@ -429,8 +429,12 @@ def footer_focused(screen: str) -> bool:
     """Down from an empty input box moves focus to the task footer, which then reads
     "enter to view tasks". Text can still land in the box, but Enter opens the
     Background dialog instead of submitting. Matches a footer cut short by a narrow
-    pane ("enter to vie…") too; cut shorter than that, it cannot be told apart."""
-    return _footer_item(screen, "enter to v")
+    pane ("enter to vie…") too; cut shorter than that, it cannot be told apart.
+
+    When the footer has no task count (only sub-agents are running), Down moves focus to
+    the sub-agent panel instead and the footer line becomes "↑/↓ to select"; Enter does
+    not submit there either."""
+    return _footer_item(screen, "enter to v") or _footer_item(screen, "↑/↓ to select")
 
 
 def why_not_send(in_mode: bool, screen: str, allow_working: bool = False) -> str | None:

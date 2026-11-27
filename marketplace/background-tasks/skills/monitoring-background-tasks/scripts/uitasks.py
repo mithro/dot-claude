@@ -151,6 +151,8 @@ def report(snaps: pathlib.Path, stamp: str, snap: dict) -> None:
         return
     try:
         old = json.loads(prev[-1].read_text())
+        if not isinstance(old, dict):
+            raise ValueError("not a JSON object")
     except (OSError, ValueError) as e:
         print(f"\n{prev[-1].name} could not be read ({e}): not compared.")
         return
@@ -224,6 +226,13 @@ def run(a: argparse.Namespace, tm, clock: panelib.Clock) -> int:
     if not panelib.footer_has(s0, "to manage"):
         return skip("the footer has no 'to manage' (no background tasks, or an unexpected screen)")
     footer_n = panelib.footer_task_count(s0)
+    if footer_n is None:
+        # "↓ to manage" with no count: only sub-agents are running. Down would then move
+        # focus to the sub-agent panel, which shows no "enter to view tasks" to confirm
+        # against, and what Enter opens from there has never been captured.
+        panel = panelib.agent_panel(s0)
+        return skip("the footer shows no task count (only sub-agents are running?), so there is no task list this "
+                    "script knows how to open. Sub-agent panel: " + (" | ".join(panel) if panel else "(none shown)"))
     snap = {"count": None, "header": "", "sections": {}, "rows": [], "selected": None,
             "time": stamp, "pane": pane, "tmux_server": tm.run("display-message", "-p", "#{pid} #{start_time}").strip(),
             "footer_count": footer_n, "agent_panel": panelib.agent_panel(s0), "details": [], "not_opened": []}

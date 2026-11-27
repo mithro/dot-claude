@@ -77,6 +77,10 @@ The list is live: when a task finishes, the rows below it move up. `uitasks.py` 
 list with its first reading before every row's **Enter** and stops (exit 3) if any row
 differs, because the selected position may now hold a different row. Run it again.
 
+With only sub-agents running the footer reads "↓ to manage" with no count. **Down** then
+moves focus to the sub-agent panel (the footer line becomes "↑/↓ to select"), not to a task
+footer. `uitasks.py` sends nothing in that state (exit 2) and prints the panel rows.
+
 **Down** leaves focus on the task footer until a dialog is opened and closed, or **Up** is
 pressed. While it is there, Enter in that session opens the Background dialog instead of
 submitting the input box. `uitasks.py` sends one **Up** on its way out if a fresh capture

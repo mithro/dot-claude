@@ -954,7 +954,7 @@ check("list: an untitled list that is not only shells has no openable rows",
 # parentheses straight after the task count, "4 shells (enter to view tasks)".
 PAREN_FOCUS = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on · 4 shells (enter to view tasks)"))
 PAREN_IDLE = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on · 4 shells (↓ to manage)"))
-PAREN_BUSY = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on · 4 shells (↓ to manage) (esc to interrupt)"))
+PAREN_BUSY = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ⏵⏵ auto mode on · 4 shells · esc to interrupt"))  # mid-turn the bundle draws no parenthesis
 check("footer: the parenthesised hint form is read",
       (panelib.footer_focused(PAREN_FOCUS), panelib.why_not_send(False, PAREN_FOCUS) is None, panelib.footer_focused(PAREN_IDLE),
        panelib.footer_has(PAREN_IDLE, "to manage"), panelib.footer_task_count(PAREN_IDLE), panelib.is_working(PAREN_BUSY)),
@@ -987,5 +987,51 @@ with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(__file__)))
     time.sleep(1.1)  # the snapshot name has one-second resolution
     code, out = quiet(uitasks.run, args, FakePane(rows=TWO))
     check("ui: an unreadable previous snapshot does not hide this run's result", (code, "self-check ok" in out, "not compared" in out), (0, True, True))
+
+
+# ---------------------------------------------------------------- ninth review: focus on the sub-agent panel
+# With no shell count in the footer, Down moves focus to the panel's "main" row and the
+# footer line becomes "↑/↓ to select" (2.1.332 bundle). Enter does not submit there.
+PANEL_FOCUS = screen(f"{R}❯\xa0", foot=("  user@host:/dir", "  ↑/↓ to select", "  ● main", "  ◯ general-purpose  reviewing · since 10:26 PM"))
+check("footer focus: '↑/↓ to select' (focus on the agent panel) counts",
+      (panelib.footer_focused(PANEL_FOCUS), panelib.why_not_send(False, PANEL_FOCUS) is None), (True, False))
+
+
+class AgentOnly(FakePane):
+    """No shells, one sub-agent: the footer has no count, and Down selects the panel."""
+
+    def key(self, pane, key):
+        self.keys.append(key)
+        if key == "Down":
+            self.panel_focus = True
+            self.damage.append("Down moved focus into the agent panel")
+
+    def render(self):
+        out = super().render()
+        return out.replace(" · ↓ to manage", "  ↑/↓ to select") if getattr(self, "panel_focus", False) else out
+
+
+p = AgentOnly()
+p.agents = ["reviewing · since 10:26 PM"]
+code, out = ui(p)
+check("ui: only a sub-agent is running (no count in the footer): no key sent, the panel is still reported",
+      (code, p.keys, p.damage, "reviewing" in out), (2, [], [], True))
+
+s = screen(f"{R}❯\xa0", foot=("  ● main", MODE, "  ● main", "  ◯ general-purpose  one · since 10:26 PM"))
+check("agent panel: a '● main' status line AND a real panel: the last head is the panel's",
+      (panelib.agent_panel(s), panelib.footer_has(s, "to manage"), panelib.background_agents(s)),
+      (["◯ general-purpose  one · since 10:26 PM"], True, True))
+s = screen(f"{R}❯\xa0", foot=("  user@host:/dir", MODE, *SIX))
+check("agent panel: the '↓ 1 more' row belongs to the panel, not the footer",
+      ([l.strip() for l in panelib.footer_lines(s)], panelib.agent_panel(s)[-1]), (["user@host:/dir", MODE.strip()], "↓ 1 more"))
+
+with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(__file__))) as state:
+    args = uitasks.parse(["--pane", "t:1", "--state-dir", state])
+    quiet(uitasks.run, args, FakePane(rows=TWO))
+    for f in pathlib.Path(state).glob("*/*.json"):
+        f.write_text("[]")
+    time.sleep(1.1)
+    code, out = quiet(uitasks.run, args, FakePane(rows=TWO))
+    check("ui: a previous snapshot that is JSON but not an object is skipped too", (code, "self-check ok" in out, "not compared" in out), (0, True, True))
 
 print(f"\nall {N_CHECKS} checks passed")
