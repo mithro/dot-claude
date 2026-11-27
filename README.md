@@ -94,13 +94,14 @@ uv run --no-project run_hook_tests.py            # everything
 uv run --no-project run_hook_tests.py allow-ssh  # one plugin
 ```
 
-### Productivity (4)
+### Productivity (5)
 
 | Plugin | Description |
 |--------|-------------|
 | `my-conventions` | Personal coding conventions: Python/uv, ISO dates, small commits, Apache 2.0, etc. |
 | `github-repo-setup` | GitHub repository configuration skill and tag ruleset script |
 | `google-sheets` | Google Sheets layout skill (`creating-google-sheets`) and `sheetcheck.py` column-fit / lint tool |
+| `nested-chrome` | Private agent Chrome in a nested Xephyr display (`launching-nested-chrome`) with `nested_chrome.py` and `cdp_eval.py` |
 | `background-tasks` | Background-work monitoring skill (`monitoring-background-tasks`) with process-tree, TUI-dialog capture and tmux pane send/compact scripts |
 
 ## Structure
@@ -108,7 +109,7 @@ uv run --no-project run_hook_tests.py allow-ssh  # one plugin
 ```
 dot-claude/
 ├── .claude-plugin/
-│   └── marketplace.json          # Marketplace catalog (36 plugins)
+│   └── marketplace.json          # Marketplace catalog (37 plugins)
 ├── marketplace/
 │   ├── agent-*/                  # 21 agent plugins
 │   ├── hook-*/                   # 9 hook plugins (each with hooks/test_*.py)
