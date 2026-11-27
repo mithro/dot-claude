@@ -3,8 +3,11 @@
 # ///
 """Evaluate JavaScript in a tab of the nested Chrome over CDP.
 
-    uv run cdp_eval.py --port 9340 --url portal.example.com 'document.title'
-    uv run cdp_eval.py --port 9340 --file fetch_items.js > items.json
+    uv run cdp_eval.py --port PORT --url portal.example.com 'document.title'
+    uv run cdp_eval.py --port PORT --file fetch_items.js > items.json
+
+PORT is the CDP port `nested_chrome.py start` (or `status`) prints. It differs
+on every start; never guess it, another browser may own the port you guess.
 
 The expression may return a promise (it is awaited); the value comes back
 as JSON, or raw if it is a string. Runs in the page, so fetch() carries the
@@ -42,6 +45,8 @@ def main():
         msg = json.loads(ws.recv())
         if msg.get("id") == 1:
             break
+    if "error" in msg:  # a protocol error, e.g. the page navigated away mid-evaluation
+        sys.exit("CDP error: " + json.dumps(msg["error"])[:2000])
     res = msg["result"]
     if "exceptionDetails" in res:
         sys.exit("exception: " + json.dumps(res["exceptionDetails"])[:2000])

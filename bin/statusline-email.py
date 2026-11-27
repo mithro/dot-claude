@@ -91,12 +91,14 @@ def cwd_part(cwd: str) -> str:
 
 def account_part() -> str:
     try:
-        account = json.loads(config_file().read_text()).get("oauthAccount") or {}
-    except (OSError, json.JSONDecodeError, AttributeError):
-        account = {}
-    email = account.get("emailAddress")
+        # ValueError covers malformed JSON and a file that is not UTF-8.
+        config = json.loads(config_file().read_text())
+    except (OSError, ValueError):
+        config = None
+    account = config.get("oauthAccount") if isinstance(config, dict) else None
+    email = account.get("emailAddress") if isinstance(account, dict) else None
     # An unknown account is uncoloured, so it cannot pass for a real one.
-    return coloured(email) if email else f"({UNKNOWN})"
+    return coloured(email) if email and isinstance(email, str) else f"({UNKNOWN})"
 
 
 def main() -> int:
